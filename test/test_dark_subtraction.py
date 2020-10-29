@@ -57,12 +57,14 @@ if __name__ == "__main__":
     if 1:
         pattern = "2020055138.20200224T183300"
         # Read Nick's background subtracted data.
-        pattern_reference = "/ncollins_PACE_OCI_2020055138.20200224T183300.L1A.nc"
+        pattern_reference_n = "/ncollins_PACE_OCI_2020055138.20200224T183300.L1A.nc"
+        pattern_reference_h = "/hchoi_PACE_OCI_2020055138.20200224T183300.L1A.nc"
         wavelength_file = "red_waves_8x8.csv"                   # Used to verify internal wavelength calculation.
     else:
         pattern = "2020055140.20200224T184932"
         # Read Nick's background subtracted data.
-        pattern_reference = "/ncollins_PACE_OCI_DIAG_2020055140.20200224T184932.L1A.nc"
+        pattern_reference_n = "/ncollins_PACE_OCI_DIAG_2020055140.20200224T184932.L1A.nc"
+        pattern_reference_h = "/hchoi_PACE_OCI_DIAG_2020055140.20200224T184932.L1A.nc"
         wavelength_file = "red_waves_1x1.csv"                  # Used to verify internal wavelength calculation.
 
     files = oci_ss.get_pace_oci_l1a_files(data_path, pattern)
@@ -113,7 +115,7 @@ if __name__ == "__main__":
 
     fig, ax = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
     fig.suptitle("Mean Red CCD counts vs $\lambda$ and Angle \n{:}.".format(oci.path.name))
-    ax.set_xlabel('Wavelength (ns)')
+    ax.set_xlabel('Wavelength (nm)')
     ax.set_ylabel('Scan Angle (deg)')
     ax.set_zlabel('File CCD Counts')
     # angle, lam = np.meshgrid(range(Sci_red_data_mean.shape[1]), range(Sci_red_data_mean.shape[0]))
@@ -125,80 +127,191 @@ if __name__ == "__main__":
     fig.colorbar(surf, ax=ax,
                  shrink=0.5, aspect=5)
 
-    oci.subtract_dark(start=0)
+    oci.subtract_dark(start=40)
 
-    Sci_red_data_global_mean = oci.Sci_red_data[1:-1, :, :].mean()
-    Sci_red_data_global_std = oci.Sci_red_data[1:-1, :, :].std()
-    # print("Pre-mask:   Sci_red_data_global_mean,  Sci_red_data_global_std", Sci_red_data_global_mean, Sci_red_data_global_std)
-    # print("Pre-mask:   Sci_red_data_global_max(), Sci_red_data_global_min()", oci.Sci_red_data[1:-1, :, :].max(), oci.Sci_red_data[1:-1, :, :].min())
-    ma.masked_outside(oci.Sci_red_data,
-                      Sci_red_data_global_mean - 1 * Sci_red_data_global_std,
-                      Sci_red_data_global_mean + 1 * Sci_red_data_global_std,
-                      copy=False)
+
+    zlim = [-0.5, 0.5]
+
+    oci.Sci_red_data[:, :, :40] = 0
+    # oci.Sci_red_data[:, :, :330] = 0
+    # oci.Sci_red_data[:, :, :41].mask = True
+
+
+    # Sci_red_data_global_mean = oci.Sci_red_data[1:-1, :, :].mean()
+    # Sci_red_data_global_std = oci.Sci_red_data[1:-1, :, :].std()
+    # # print("Pre-mask:   Sci_red_data_global_mean,  Sci_red_data_global_std", Sci_red_data_global_mean, Sci_red_data_global_std)
+    # # print("Pre-mask:   Sci_red_data_global_max(), Sci_red_data_global_min()", oci.Sci_red_data[1:-1, :, :].max(), oci.Sci_red_data[1:-1, :, :].min())
+    # ma.masked_outside(oci.Sci_red_data,
+    #                   Sci_red_data_global_mean - 1 * Sci_red_data_global_std,
+    #                   Sci_red_data_global_mean + 1 * Sci_red_data_global_std,
+    #                   copy=False)
     Sci_red_data_global_mean = oci.Sci_red_data[1:-1, :, :].mean()
     Sci_red_data_global_std = oci.Sci_red_data[1:-1, :, :].std()
     # print("Post-mask:  Sci_red_data_global_mean,  Sci_red_data_global_std", Sci_red_data_global_mean, Sci_red_data_global_std)
     # print("Pre-mask:   Sci_red_data_global_max(), Sci_red_data_global_min()", oci.Sci_red_data[1:-1, :, :].max(), oci.Sci_red_data[1:-1, :, :].min())
     # print(oci.Sci_red_data.flags)
 
-    Sci_red_data_mean = oci.Sci_red_data.mean(axis=0)
-    Sci_red_data_std = oci.Sci_red_data.std(axis=0)
-    fig2, ax2 = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
+    Sci_red_data_mean = oci.Sci_red_data[1:-1, :, :].mean(axis=0)
+    Sci_red_data_std = oci.Sci_red_data[1:-1, :, :].std(axis=0)
+    fig2, ax2 = plt.subplots(1, 2, subplot_kw={"projection": "3d"})
     fig2.suptitle("Mean Red CCD counts vs $\lambda$ and Angle \n{:}.".format(oci.path.name))
-    ax2.set_xlabel('Wavelength (ns)')
-    ax2.set_ylabel('Scan Angle (deg)')
-    ax2.set_zlabel('Background subtracted Counts')
+    [a.set_xlabel('Wavelength (nm)') for a in ax2]
+    [a.set_ylabel('Scan Angle (deg)') for a in ax2]
+    ax2[0].set_zlabel('Background subtracted Counts')
+    ax2[1].set_zlabel('Background subtracted std Counts')
+    ax2[0].set_title("Mean CCD Counts over {:} scans.".format(oci.Sci_red_data[1:-1, :, :].shape[0]))
+    ax2[1].set_title("STD CCD Counts over {:} scans.".format(oci.Sci_red_data[1:-1, :, :].shape[0]))
     angle, lam = np.meshgrid(oci.pixel_angle, oci.red_wavelengths)
-    surf2 = ax2.plot_surface(lam, angle, ma.filled(Sci_red_data_mean, np.nan), cmap='viridis', edgecolor='none',
-                             vmin=-1, vmax=1) #cmap=mpl.rcParams['image.cmap'])
-    fig2.colorbar(surf2, ax=ax2,
+    if 1:
+        # surf2 = ax2.plot_surface(lam, angle, oci.Sci_red_data[10, :, :], cmap='viridis', edgecolor='none',
+        #                          vmin=-1, vmax=1) #cmap=mpl.rcParams['image.cmap'])
+        surf2 = ax2[0].plot_surface(lam, angle, Sci_red_data_mean, cmap='viridis', edgecolor='none',
+                                 vmin=-0.1, vmax=0.1) #cmap=mpl.rcParams['image.cmap'])
+        surf2b = ax2[1].plot_surface(lam, angle, Sci_red_data_std, cmap='viridis', edgecolor='none',
+                                 vmin=1.2, vmax=1.5) #cmap=mpl.rcParams['image.cmap'])
+        fig2.colorbar(surf2, ax=ax2[0],
                   shrink=0.5, aspect=5)
+        fig2.colorbar(surf2b, ax=ax2[1],
+                  shrink=0.5, aspect=5)
+    ax2[0].set_zlim(*zlim)
+    ax2[1].set_zlim(1, 1.6)
 
-
-    files = oci_ss.get_pace_oci_l1a_files(data_path, pattern_reference)
+    ####################################################
+    # Now read Nick's dark adjusted data for comparison.
+    ####################################################
+    files = oci_ss.get_pace_oci_l1a_files(data_path, pattern_reference_n)
     with Dataset(files[0], 'r') as fid_cdf:
         science_group = fid_cdf.groups['science_data']  # Read the CCD raw data
-        Sci_red_ds = science_group.variables['sci_red_ds'][1:-1, :, :]
+        Sci_red_ds_n = science_group.variables['sci_red_ds'][1:-1, :, :]
 
-    # print("Sci_red_ds")
-    # print(Sci_red_ds.flags)
-    Sci_red_ds_global_mean = Sci_red_ds.mean()
-    Sci_red_ds_global_std = Sci_red_ds.std()
-    # print("Pre-mask:   Sci_red_ds_global_mean,    Sci_red_ds_global_std", Sci_red_ds_global_mean, Sci_red_ds_global_std)
-    # print("Pre-mask:   Sci_red_ds.max(),          Sci_red_ds.min()     ", Sci_red_ds[1:-1, :, :].max(), Sci_red_ds[1:-1, :, :].min())
-    # print(type(Sci_red_ds))
-    Sci_red_ds = ma.masked_outside(Sci_red_ds,
-                                   0.1, #Sci_red_ds_global_mean - 1,
-                                   Sci_red_ds_global_mean + 1,
-                                   copy=False)
-    Sci_red_ds_global_mean = Sci_red_ds.mean()
-    Sci_red_ds_global_std = Sci_red_ds.std()
-    # print("Post-mask:  Sci_red_ds_global_mean,    Sci_red_ds_global_std", Sci_red_ds_global_mean, Sci_red_ds_global_std)
-    # print("Post-mask:  Sci_red_ds.max(),          Sci_red_ds.min()     ", Sci_red_ds[1:-1, :, :].max(), Sci_red_ds[1:-1, :, :].min())
+    files = oci_ss.get_pace_oci_l1a_files(data_path, pattern_reference_h)
+    with Dataset(files[0], 'r') as fid_cdf:
+        science_group = fid_cdf.groups['science_data']  # Read the CCD raw data
+        Sci_red_ds_h = science_group.variables['sci_red_ds'][1:-1, :, :]
 
-    Sci_red_ds_mean = Sci_red_ds.mean(axis=0)
-    Sci_red_ds_std = Sci_red_ds.std(axis=0)
+    # Sci_red_ds_global_mean = Sci_red_ds.mean()
+    # Sci_red_ds_global_std = Sci_red_ds.std()
+
+    Sci_red_ds_mean_n = Sci_red_ds_n[1:-1, :, :].mean(axis=0)
+    Sci_red_ds_std_n = Sci_red_ds_n[1:-1, :, :].std(axis=0)
     # print("Sci_red_ds.mean(), Sci_red_ds.std() ", Sci_red_ds.mean(), Sci_red_ds.std())
-    fig3, ax3 = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
+    fig3, ax3 = plt.subplots(1, 2, subplot_kw={"projection": "3d"})
     fig3.suptitle("Mean Red CCD counts vs $\lambda$ and Angle \n{:}.".format(files[0].name))
-    ax3.set_xlabel('Wavelength (ns)')
-    ax3.set_ylabel('Scan Angle (deg)')
-    ax3.set_zlabel("Nick's Background subtracted Counts")
-    # angle, lam = np.meshgrid(range(Sci_red_data_mean.shape[1]), range(Sci_red_data_mean.shape[0]))
-    # oci.pixel_angle[oci.pixel_angle > 200] = np.nan
+    [a.set_xlabel('Wavelength (nm)') for a in ax3]
+    [a.set_ylabel('Scan Angle (deg)') for a in ax3]
+    ax3[0].set_title("Nick's Mean CCD Counts over {:} scans.".format(Sci_red_ds_n[1:-1, :, :].shape[0]))
+    ax3[1].set_title("Nick's STD CCD Counts over {:} scans.".format(Sci_red_ds_n[1:-1, :, :].shape[0]))
 
     angle, lam = np.meshgrid(oci.pixel_angle, oci.red_wavelengths)
-    surf3 = ax3.plot_surface(lam, angle, ma.filled(Sci_red_ds_mean, np.nan), cmap='viridis',
-                             edgecolor='none',
-                             vmin=-1, vmax=1) #cmap=mpl.rcParams['image.cmap'])
-    fig3.colorbar(surf3, ax=ax3,
+    if 1:
+        # surf3 = ax3.plot_surface(lam, angle, Sci_red_ds_n[10, :, :], cmap='viridis',
+        #                          edgecolor='none',
+        #                          vmin=-1, vmax=1) #cmap=mpl.rcParams['image.cmap'])
+    # else:
+        surf3 = ax3[0].plot_surface(lam, angle, Sci_red_ds_mean_n, cmap='viridis',
+                                    edgecolor='none',
+                                    vmin=-0.1, vmax=0.1) #cmap=mpl.rcParams['image.cmap'])
+        surf3b = ax3[1].plot_surface(lam, angle, Sci_red_ds_std_n, cmap='viridis',
+                                    edgecolor='none',
+                                    vmin=1.2, vmax=1.5) #cmap=mpl.rcParams['image.cmap'])
+    fig3.colorbar(surf3, ax=ax3[0],
                   shrink=0.5, aspect=5)
+    fig3.colorbar(surf3, ax=ax3[1],
+                  shrink=0.5, aspect=5)
+    ax3[0].set_zlim(*zlim)
+    ax3[1].set_zlim(1, 1.6)
 
-    wavelengths = np.loadtxt(data_path/wavelength_file)
-    print("Wavelengths from csv file")
-    print(wavelengths)
-    print("Wavelengths from nc file")
-    print(oci.red_wavelengths)
+    ####################################################
+    # Now read Nyeungu's dark adjusted data for comparison.
+    ####################################################
+    Sci_red_ds_mean_h = Sci_red_ds_h[1:-1, :, :].mean(axis=0)
+    Sci_red_ds_std_h = Sci_red_ds_h[1:-1, :, :].std(axis=0)
+    # print("Sci_red_ds.mean(), Sci_red_ds.std() ", Sci_red_ds.mean(), Sci_red_ds.std())
+    fig3, ax3 = plt.subplots(1, 2, subplot_kw={"projection": "3d"})
+    fig3.suptitle("Mean Red CCD counts vs $\lambda$ and Angle \n{:}.".format(files[0].name))
+    [a.set_xlabel('Wavelength (nm)') for a in ax3]
+    [a.set_ylabel('Scan Angle (deg)') for a in ax3]
+    ax3[0].set_title("Hyeungu's Mean CCD Counts over {:} scans.".format(Sci_red_ds_n[1:-1, :, :].shape[0]))
+    ax3[1].set_title("Hyeungu's STD CCD Counts over {:} scans.".format(Sci_red_ds_n[1:-1, :, :].shape[0]))
+
+    angle, lam = np.meshgrid(oci.pixel_angle, oci.red_wavelengths)
+    if 1:
+        # surf3 = ax3.plot_surface(lam, angle, Sci_red_ds_h[10, :, :], cmap='viridis',
+        #                          edgecolor='none',
+        #                          vmin=-1, vmax=1) #cmap=mpl.rcParams['image.cmap'])
+    # else:
+        surf3 = ax3[0].plot_surface(lam, angle, Sci_red_ds_mean_h, cmap='viridis',
+                                    edgecolor='none',
+                                    vmin=-0.1, vmax=0.1) #cmap=mpl.rcParams['image.cmap'])
+        surf3b = ax3[1].plot_surface(lam, angle, Sci_red_ds_std_h, cmap='viridis',
+                                    edgecolor='none',
+                                    vmin=1.2, vmax=1.5) #cmap=mpl.rcParams['image.cmap'])
+    fig3.colorbar(surf3, ax=ax3[0],
+                  shrink=0.5, aspect=5)
+    fig3.colorbar(surf3, ax=ax3[1],
+                  shrink=0.5, aspect=5)
+    ax3[0].set_zlim(*zlim)
+    ax3[1].set_zlim(1, 1.6)
+
+    # wavelengths = np.loadtxt(data_path/wavelength_file)
+    # print("Wavelengths from csv file")
+    # print(wavelengths)
+    # print("Wavelengths from nc file")
+    # print(oci.red_wavelengths)
 
 
+    #####################################################
+    # Now plot the difference between the three solutions
+    #####################################################
+
+    fig4, ax4 = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
+    fig4.suptitle("Difference between CTF and NRC's results vs $\lambda$ and Angle \n{:}.".format(files[0].name))
+    ax4.set_xlabel('Wavelength (nm)')
+    ax4.set_ylabel('Scan Angle (deg)')
+    ax4.set_zlabel("Nick's Background subtracted Counts")
+
+    surf4 = ax4.plot_surface(lam, angle,  Sci_red_data_mean - Sci_red_ds_mean_n, cmap='viridis',
+                             edgecolor='none',
+                             vmin=-0.1, vmax=0.05) #cmap=mpl.rcParams['image.cmap'])
+    fig4.colorbar(surf4, ax=ax4,
+                  shrink=0.5, aspect=5)
+    ax4.set_zlim(-0.2, 0.2)
+
+    fig4, ax4 = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
+    fig4.suptitle("Difference between CTF and HChoi's results vs $\lambda$ and Angle \n{:}.".format(files[0].name))
+    ax4.set_xlabel('Wavelength (nm)')
+    ax4.set_ylabel('Scan Angle (deg)')
+    ax4.set_zlabel("Nick's Background subtracted Counts")
+
+    surf4 = ax4.plot_surface(lam, angle,  Sci_red_data_mean - Sci_red_ds_mean_h, cmap='viridis',
+                             edgecolor='none',
+                             vmin=-0.1, vmax=0.05) #cmap=mpl.rcParams['image.cmap'])
+    fig4.colorbar(surf4, ax=ax4,
+                  shrink=0.5, aspect=5)
+    ax4.set_zlim(-0.2, 0.2)
+
+    fig4, ax4 = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
+    fig4.suptitle("Difference between NRC and HChoi's results vs $\lambda$ and Angle \n{:}.".format(files[0].name))
+    ax4.set_xlabel('Wavelength (nm)')
+    ax4.set_ylabel('Scan Angle (deg)')
+    ax4.set_zlabel("Nick's Background subtracted Counts")
+
+    surf4 = ax4.plot_surface(lam, angle,  Sci_red_ds_mean_n - Sci_red_ds_mean_h, cmap='viridis',
+                             edgecolor='none',
+                             vmin=-0.1, vmax=0.05) #cmap=mpl.rcParams['image.cmap'])
+    fig4.colorbar(surf4, ax=ax4,
+                  shrink=0.5, aspect=5)
+    ax4.set_zlim(-0.2, 0.2)
+
+
+    # path = "/Users/cfield/Documents/PACE/python_code/oci_l1a/test/dark_view_correction_examples/ncollins_cfield_PACE_OCI_DIAG_2020055140.20200224T184932.L1A.nc"
+    # path = "/Users/cfield/Documents/PACE/python_code/oci_l1a/test/dark_view_correction_examples/ncollins_cfield_PACE_OCI_2020055138.20200224T183300.L1A.nc"
+    # with Dataset(path, 'a') as fid_cdf:
+    #     outVar = fid_cdf.createVariable('/science_data/sci_red_ds_ctf',
+    #                                     fid_cdf['/science_data/sci_red_ds'].datatype,
+    #                                     fid_cdf['/science_data/sci_red_ds'].dimensions)
+    #     outVar[:] = oci.Sci_red_data
     plt.show()
+
+
+figA, axA = plt.subplots(1, 1, subplot_kw={"projection": "3d"})

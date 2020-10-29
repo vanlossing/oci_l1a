@@ -207,9 +207,18 @@ class READ_OCI_SPA_SPE_L1A(object):
         if path is None:
             return
         with Dataset(path,'r') as fid_cdf:
+            # Need the spatial/spectral aggregation first so can calculate dark shift.
+            spatial_spectral_group = fid_cdf.groups['spatial_spectral_modes']   # Get aggregation attributes
+            self.aux_param_table = spatial_spectral_group.variables['aux_param_table'][()]
+            self.blue_spectral_mode = spatial_spectral_group.variables['blue_spectral_mode'][()]
+            self.red_spectral_mode = spatial_spectral_group.variables['red_spectral_mode'][()]
+            self.spatial_aggregation = spatial_spectral_group.variables['spatial_aggregation'][()]
+            self.spatial_zone_data_type = spatial_spectral_group.variables['spatial_zone_data_type'][()]
+            self.spatial_zone_lines = spatial_spectral_group.variables['spatial_zone_lines'][()]
+
             dark_group = fid_cdf.groups['onboard_calibration_data']             # Read dark data
-            self.DC_red_data = dark_group.variables['DC_red'][()] >> 4
-            self.DC_blue_data = dark_group.variables['DC_blue'][()] >> 4
+            self.DC_red_data = np.right_shift(dark_group.variables['DC_red'][:], 4) # >> 4
+            self.DC_blue_data = np.right_shift(dark_group.variables['DC_blue'][:], 4) # >> 4
 
             science_group = fid_cdf.groups['science_data']                      # Read the CCD raw data
             self.Sci_red_data =  science_group.variables['sci_red'][()]
@@ -219,14 +228,6 @@ class READ_OCI_SPA_SPE_L1A(object):
             self.scan_start_time = time_group.variables['scan_start_time'][()]
             self.scan_start_CCSDS_sec = time_group.variables['scan_start_CCSDS_sec'][()]
             self.scan_start_CCSDS_usec = time_group.variables['scan_start_CCSDS_usec'][()]
-
-            spatial_spectral_group = fid_cdf.groups['spatial_spectral_modes']   # Get aggregation attributes
-            self.aux_param_table = spatial_spectral_group.variables['aux_param_table'][()]
-            self.blue_spectral_mode = spatial_spectral_group.variables['blue_spectral_mode'][()]
-            self.red_spectral_mode = spatial_spectral_group.variables['red_spectral_mode'][()]
-            self.spatial_aggregation = spatial_spectral_group.variables['spatial_aggregation'][()]
-            self.spatial_zone_data_type = spatial_spectral_group.variables['spatial_zone_data_type'][()]
-            self.spatial_zone_lines = spatial_spectral_group.variables['spatial_zone_lines'][()]
 
         # Compute the wavelengths from the spectral modes.
         self.red_wavelengths = getCCDbands3(self.red_spectral_mode, 'red')
@@ -370,9 +371,42 @@ class READ_OCI_SPA_SPE_L1A(object):
         .. note::
             This method permanently modifies the data attributes in place.
         """
-        DC_red_mean = self.DC_red_data[:, :, start:].mean(axis=2, dtype=np.float32, keepdims=True)
-        DC_blue_mean = self.DC_blue_data[:, :, start:].mean(axis=2, dtype=np.float32, keepdims=True)
-        self.Sci_red_data = self.Sci_red_data.astype(np.float64) - DC_red_mean
+
+        # DC_red_mean = self.DC_red_data[:, :, start:].mean(axis=2, dtype=np.float64, keepdims=True)
+        DC_blue_mean = self.DC_blue_data[:, :, start:].mean(axis=2, dtype=np.float64, keepdims=True)
+
+        dev = 3
+        DC_red_data = self.DC_red_data.astype(np.float64)
+        DC_red_mean = DC_red_data[1:-1, :, :, ].mean(axis=2, dtype=np.float64, keepdims=True)
+        DC_red_std_1 = DC_red_data[1:-1, :, :, ].std(axis=2, dtype=np.float64, keepdims=True)
+        # DC_red_std = DC_red_std_1.copy()
+        # i_large = np.nonzero(DC_red_data > DC_red_mean + dev * DC_red_std)
+        # print("i_large")
+        # print(np.asarray(i_large).shape)
+        # pprint(i_large)
+        # i_small = np.nonzero(DC_red_data < DC_red_mean - dev * DC_red_std)
+        # print("i_small")
+        # print(np.asarray(i_small).shape)
+        # pprint(i_small)
+
+        # DC_red_mean = DC_red_mean.mean(axis=0, dtype=np.float64, keepdims=True)
+        # DC_red_std_2 = DC_red_data.std(axis=0, dtype=np.float64, keepdims=True)
+        # DC_red_std = DC_red_std_2.copy()
+        # i_large = np.nonzero(DC_red_data > DC_red_mean + dev * DC_red_std)
+        # print("i_large")
+        # print(np.asarray(i_large).shape)
+        # pprint(i_large)
+        # i_small = np.nonzero(DC_red_data < DC_red_mean - dev * DC_red_std)
+        # print("i_small")
+        # print(np.asarray(i_small).shape)
+        # pprint(i_small)
+
+
+        DC_red_mean = ma.masked_where((DC_red_data[1:-1, :, :, ] < DC_red_mean - 3 * DC_red_std_1)
+                                      | (DC_red_data[1:-1, :, :, ] > DC_red_mean + 3 * DC_red_std_1),
+                                      DC_red_data[1:-1, :, :, ],).mean(axis=2, keepdims=True)
+
+        self.Sci_red_data = self.Sci_red_data[1:-1, :, :, ].astype(np.float64) - DC_red_mean
         self.Sci_blue_data = self.Sci_blue_data.astype(np.float64) - DC_blue_mean
 
 
@@ -698,7 +732,7 @@ def main(args):
 
     oci2 = deepcopy(oci)                # Keep a copy of the original data
     oci2.select__data_type(9)           # Clip the spatial pixels to zone 9
-    oci2.subtract_dark()
+    oci2.subtract_dark(start=50)
     # Mask scan start times less than equal to zero.
     scan_start_time = ma.masked_where(oci2.scan_start_time <= 0, oci2.scan_start_time)
 
