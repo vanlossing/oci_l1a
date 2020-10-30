@@ -161,10 +161,12 @@ class READ_OCI_SPA_SPE_L1A(object):
            #. **pixel_data_type**: The spatial zone type of each spatial pixel (unitless) (Length N_p).
 
         Group 2:
-           #. **pixel_data_type_red**: Same as pixel_data_type broadcast to shape **N_s** x **N_wr** x **N_p**.
-              Note that due to the magic of numpy indexing this array uses only the same memory as pixel_data_type.
-           #. **pixel_data_type_blue**: Same as pixel_data_type broadcast to shape **N_s** x **N_wr** x **N_p**.
-              Note that due to the magic of numpy indexing this array uses only the same memory as pixel_data_type.
+           #. **pixel_data_type_red**: Same as pixel_data_type broadcast to shape
+              **N_s** x **N_wr** x **N_p**. Note that due to the magic of numpy indexing this array
+              uses only the memory pixel_data_type does.
+           #. **pixel_data_type_blue**: Same as pixel_data_type broadcast to shape
+              **N_s** x **N_wr** x **N_p**. Note that due to the magic of numpy indexing this array
+              uses only the memory as pixel_data_type does.
            #. **DC_red_data**: The dark count data read from DC_red (**N_s** x **N_wr** x **N_d**),
               where **N_d** is the number of dark pixels recorded. Values have been divided by 16.
            #. **DC_blue_data**: The dark count data read from DC_blue (**N_s** x **N_wb** x **N_d**).
@@ -220,11 +222,11 @@ class READ_OCI_SPA_SPE_L1A(object):
             self.DC_red_data = np.right_shift(dark_group.variables['DC_red'][:], 4) # >> 4
             self.DC_blue_data = np.right_shift(dark_group.variables['DC_blue'][:], 4) # >> 4
 
-            science_group = fid_cdf.groups['science_data']                      # Read the CCD raw data
+            science_group = fid_cdf.groups['science_data']                          # Read the CCD raw data
             self.Sci_red_data =  science_group.variables['sci_red'][()]
             self.Sci_blue_data =  science_group.variables['sci_blue'][()]
 
-            time_group = fid_cdf.groups['scan_line_attributes']                 # Get scan line attributes
+            time_group = fid_cdf.groups['scan_line_attributes']                     # Get scan line attributes
             self.scan_start_time = time_group.variables['scan_start_time'][()]
             self.scan_start_CCSDS_sec = time_group.variables['scan_start_CCSDS_sec'][()]
             self.scan_start_CCSDS_usec = time_group.variables['scan_start_CCSDS_usec'][()]
@@ -239,7 +241,7 @@ class READ_OCI_SPA_SPE_L1A(object):
         zone_start[1:] = zone_span.cumsum()                                         # Start angle of each zone
         # Compute pixels in each zone. This is a masked array with zones not represented in the data masked.
         pixels_zone = self.spatial_zone_lines // self.spatial_aggregation
-        pixel_end = pixels_zone.cumsum()                                    # Ending pixel of each recorded zone.
+        pixel_end = pixels_zone.cumsum()                                # Ending pixel of each recorded zone.
 
         # From the line start index, assign a scan angle to each aggregated spatial pixel in the CCD image.
         # Identify each pixel's zone data type.
@@ -273,7 +275,7 @@ class READ_OCI_SPA_SPE_L1A(object):
         # TAI  - double, seconds     , epoch 0h Jan 1 1958, ignores leapseconds
         # Compute the scan start time in TAI with microsecond resolution
         self.scan_start_CCSDS_sec = self.scan_start_CCSDS_sec.astype(np.int64)
-        self.scan_start_TIA = self.scan_start_CCSDS_sec * 1000000 + self.scan_start_CCSDS_usec     # usec since TAI
+        self.scan_start_TIA = self.scan_start_CCSDS_sec * 1000000 + self.scan_start_CCSDS_usec  # usec since TAI
 
 
     def append(self, other):
@@ -377,8 +379,8 @@ class READ_OCI_SPA_SPE_L1A(object):
 
         dev = 3
         DC_red_data = self.DC_red_data.astype(np.float64)
-        DC_red_mean = DC_red_data[1:-1, :, :, ].mean(axis=2, dtype=np.float64, keepdims=True)
-        DC_red_std_1 = DC_red_data[1:-1, :, :, ].std(axis=2, dtype=np.float64, keepdims=True)
+        DC_red_mean =  DC_red_data[:, :, start:].mean(axis=2, dtype=np.float64, keepdims=True)
+        DC_red_std_1 = DC_red_data[:, :, start:].std(axis=2, dtype=np.float64, keepdims=True)
         # DC_red_std = DC_red_std_1.copy()
         # i_large = np.nonzero(DC_red_data > DC_red_mean + dev * DC_red_std)
         # print("i_large")
@@ -402,11 +404,11 @@ class READ_OCI_SPA_SPE_L1A(object):
         # pprint(i_small)
 
 
-        DC_red_mean = ma.masked_where((DC_red_data[1:-1, :, :, ] < DC_red_mean - 3 * DC_red_std_1)
-                                      | (DC_red_data[1:-1, :, :, ] > DC_red_mean + 3 * DC_red_std_1),
-                                      DC_red_data[1:-1, :, :, ],).mean(axis=2, keepdims=True)
+        DC_red_mean = ma.masked_where((DC_red_data[:, :, start:] < DC_red_mean - 3 * DC_red_std_1)
+                                    | (DC_red_data[:, :, start:] > DC_red_mean + 3 * DC_red_std_1),
+                                      DC_red_data[:, :, start:]).mean(axis=2, keepdims=True)
 
-        self.Sci_red_data = self.Sci_red_data[1:-1, :, :, ].astype(np.float64) - DC_red_mean
+        self.Sci_red_data = self.Sci_red_data[:, :, :, ].astype(np.float64) - DC_red_mean
         self.Sci_blue_data = self.Sci_blue_data.astype(np.float64) - DC_blue_mean
 
 
