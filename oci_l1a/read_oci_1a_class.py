@@ -20,7 +20,6 @@ For information on the thermal variables in the L1A files, see:
 # https://yoroshikune.com/create-powerpoint-presentation-python/
 # https://pbpython.com/creating-powerpoint.html
 
-
 import argparse
 from copy import deepcopy
 from pathlib import Path
@@ -28,16 +27,16 @@ from pprint import pprint
 import sys
 
 from matplotlib import pyplot as plt
-import matplotlib as mpl                # Used to get color map.
-from mpl_toolkits.mplot3d import axes3d
-from netCDF4 import Dataset         #https://unidata.github.io/netcdf4-python/netCDF4/index.html
+import matplotlib as mpl            # Used to get color map.
+# from mpl_toolkits.mplot3d import axes3d
+from netCDF4 import Dataset         # https://unidata.github.io/netcdf4-python/netCDF4/index.html
 import numpy as np
 import numpy.ma as ma
 
 import etu_thermal as therm
 
 CCD_DIM = 512
-# """Number of pixels in each direction of the CCD. Constant."""
+"""Number of pixels in each direction of the CCD. Constant."""
 NUM_TAPS = 16
 # """Number of CCD readout taps. Constant."""
 RED_S_ORIGIN = 597.5
@@ -80,7 +79,7 @@ def getCCDbands3(spectral_mode, band):
 
     :param spectral_mode: vector of spectral aggregation factors, one for each tap
     :param band: "blue" or "red"
-    :return: output vector of aggregated pixel center wavelengths
+    :return: output vector of aggregated pixel center wavelengths, max(spectral_mode)
 
     :raises: ValueError **band** is not one of the valid strings.
     """
@@ -98,17 +97,24 @@ def getCCDbands3(spectral_mode, band):
     wavelengths = [s + 0.5 * DELTA_LAMBDA * mode + DELTA_LAMBDA * np.arange(0, CCDperTAP, mode)
                    for s, mode in zip(tap_starts, spectral_mode) if mode != 0]
     wavelengths = np.concatenate(wavelengths, axis=0)
-    return wavelengths
+    if not np.all(spectral_mode == spectral_mode[0]):
+        print("Warning. spectral_mode not all the same.",
+              file=sys.stderr)
+    return wavelengths, spectral_mode.max()
 
-def f(spatial_zone_lines, spatial_aggregation, spatial_zone_data_type):
-    """Not implemented yet. DO NOT USE.
 
-    :param spatial_zone_lines:
-    :param spatial_aggregation:
-    :param spatial_zone_data_type:
-    :return:
+def get_CCD_pixel_type(spatial_zone_lines,
+                       spatial_aggregation,
+                       spatial_zone_data_type,
+                       num_spatial_pixels):
+    """Use spatial zone line, aggregation, and type to generate scanner angle for each pixel.
+
+    :param spatial_zone_lines: Values from file "spatial_spectral_modes"
+    :param spatial_aggregation: Values from file "spatial_spectral_modes"
+    :param spatial_zone_data_type: Values from file "spatial_spectral_modes"
+    :param num_spatial_pixels: Number of spatial pixels in the scan (CCD pixels).
+    :return: 1darray pixel_angle, 1darray pixel_data_type, spatial aggregation
     """
-
     zone_span = spatial_zone_lines * 360. / spatial_zone_lines.sum()  # Angular span of each zone
     zone_start = np.zeros(len(zone_span) + 1, dtype=zone_span.dtype)
     zone_start[1:] = zone_span.cumsum()                         # Start angle of each zone
@@ -118,8 +124,8 @@ def f(spatial_zone_lines, spatial_aggregation, spatial_zone_data_type):
 
     # From the line start index, assign a scan angle to each aggregated spatial pixel in the CCD image.
     # Identify each pixel's zone data type.
-    pixel_angle = np.zeros((Sci_red_data.shape[2],), dtype=np.float32)
-    pixel_data_type = np.zeros((1, 1, Sci_red_data.shape[2],), dtype=np.int16)
+    pixel_angle = np.zeros((num_spatial_pixels,), dtype=np.float32)
+    pixel_data_type = np.zeros((1, 1, num_spatial_pixels,), dtype=np.int16)
     for num, i_end, angle_range, angle_start, zone_type in zip(pixels_zone,
                                                                pixel_end,
                                                                zone_span,
@@ -127,8 +133,23 @@ def f(spatial_zone_lines, spatial_aggregation, spatial_zone_data_type):
                                                                spatial_zone_data_type):
         if num is ma.masked:                                    # If # pixels is masked, then no pixels
             continue                                            # Go to the next zone.
-        pixel_angle[i_end - num:i_end] = angle_start + angle_range / num * range(num)
-        pixel_data_type[:, :, i_end - num:i_end] = zone_type
+        # pixel_angle[i_end - num:i_end] = angle_start + angle_range / num * range(num)
+        # pixel_data_type[:, :, i_end - num:i_end] = zone_type
+        try:
+            pixel_angle[i_end-num:i_end] = angle_start + angle_range/num * range(num)
+            pixel_data_type[:, :, i_end-num:i_end] = zone_type
+        except ValueError:
+            if zone_type == 2:
+                print("Warning. File appears to be old format without dark pixels in CCD image array.",
+                      file=sys.stderr)
+                continue
+            raise
+    # Get the spatial aggregation mode. Test that all the same
+    a = spatial_aggregation[spatial_zone_data_type > 0]
+    if not np.all(a == a[0]):
+        print("Warning. Spatial aggregation not all the same in captured pixels.",
+              file=sys.stderr)
+    return pixel_angle, pixel_data_type, a[0]
 
 
 class READ_OCI_SPA_SPE_L1A(object):
@@ -167,10 +188,14 @@ class READ_OCI_SPA_SPE_L1A(object):
            #. **pixel_data_type_blue**: Same as pixel_data_type broadcast to shape
               **N_s** x **N_wr** x **N_p**. Note that due to the magic of numpy indexing this array
               uses only the memory as pixel_data_type does.
+           #. **DC_swir_data**: The dark count data read from DC_swir (**N_s** x **N_wr** x **N_d**)?,
+              where **N_d** is the number of dark pixels recorded.
            #. **DC_red_data**: The dark count data read from DC_red (**N_s** x **N_wr** x **N_d**),
               where **N_d** is the number of dark pixels recorded. Values have been divided by 16.
            #. **DC_blue_data**: The dark count data read from DC_blue (**N_s** x **N_wb** x **N_d**).
               Values have been divided by 16.
+           #. **Sci_swir_data**: The raw counts read from sci_swir (**N_s** x **N_wr** x **N_d**)?.
+              If **mask_dark** was True, then any pixels not in zone 9 are masked. (NOT YET.)
            #. **Sci_red_data**: The raw counts read from sci_red (**N_s** x **N_wr** x **N_d**).
               If **mask_dark** was True, then any pixels not in zone 9 are masked.
            #. **Sci_blue_data**: The raw counts read from sci_blue (**N_s** x **N_wb** x **N_d**).
@@ -188,7 +213,7 @@ class READ_OCI_SPA_SPE_L1A(object):
         Any mismatch will raise a ValueError indicating which was the first one to not match.
         Data attributes in Group 1 are all taken from the current file and are always valid.
         However, when appending, data attributes in Group 2 are accumulated in lists
-        and don't take the form of numpy masked arrays until after the **append_conclude**
+        and don't take the form of numpy masked arrays until after the **append_conclude()**
         method has been called.
 
         .. note::
@@ -201,7 +226,6 @@ class READ_OCI_SPA_SPE_L1A(object):
                 oci2.subtract_dark()
                 oci2 = deepcopy(oci)    # Reset oci2 to the original values.
     """
-
     def __init__(self, path=None, mask_dark=False):
         """Constructor for class READ_OCI_SPA_SPE_L1A"""
 
@@ -209,20 +233,13 @@ class READ_OCI_SPA_SPE_L1A(object):
         if path is None:
             return
         with Dataset(path,'r') as fid_cdf:
-            # Need the spatial/spectral aggregation first so can calculate dark shift.
-            spatial_spectral_group = fid_cdf.groups['spatial_spectral_modes']   # Get aggregation attributes
-            self.aux_param_table = spatial_spectral_group.variables['aux_param_table'][()]
-            self.blue_spectral_mode = spatial_spectral_group.variables['blue_spectral_mode'][()]
-            self.red_spectral_mode = spatial_spectral_group.variables['red_spectral_mode'][()]
-            self.spatial_aggregation = spatial_spectral_group.variables['spatial_aggregation'][()]
-            self.spatial_zone_data_type = spatial_spectral_group.variables['spatial_zone_data_type'][()]
-            self.spatial_zone_lines = spatial_spectral_group.variables['spatial_zone_lines'][()]
-
             dark_group = fid_cdf.groups['onboard_calibration_data']             # Read dark data
-            self.DC_red_data = np.right_shift(dark_group.variables['DC_red'][:], 4) # >> 4
-            self.DC_blue_data = np.right_shift(dark_group.variables['DC_blue'][:], 4) # >> 4
+            self.DC_swir_data = dark_group.variables['DC_SWIR'][:]
+            self.DC_red_data = dark_group.variables['DC_red'][:]
+            self.DC_blue_data = dark_group.variables['DC_blue'][:]
 
             science_group = fid_cdf.groups['science_data']                          # Read the CCD raw data
+            self.Sci_swir_data =  science_group.variables['sci_SWIR'][()]
             self.Sci_red_data =  science_group.variables['sci_red'][()]
             self.Sci_blue_data =  science_group.variables['sci_blue'][()]
 
@@ -231,45 +248,33 @@ class READ_OCI_SPA_SPE_L1A(object):
             self.scan_start_CCSDS_sec = time_group.variables['scan_start_CCSDS_sec'][()]
             self.scan_start_CCSDS_usec = time_group.variables['scan_start_CCSDS_usec'][()]
 
+            # Need the spatial/spectral aggregation first so can calculate dark shift.
+            spatial_spectral_group = fid_cdf.groups['spatial_spectral_modes']  # Get aggregation attributes
+            self.aux_param_table = spatial_spectral_group.variables['aux_param_table'][()]
+            self.blue_spectral_mode = spatial_spectral_group.variables['blue_spectral_mode'][()]
+            self.red_spectral_mode = spatial_spectral_group.variables['red_spectral_mode'][()]
+            self.spatial_aggregation = spatial_spectral_group.variables['spatial_aggregation'][()]
+            self.spatial_zone_data_type = spatial_spectral_group.variables['spatial_zone_data_type'][()]
+            self.spatial_zone_lines = spatial_spectral_group.variables['spatial_zone_lines'][()]
+
         # Compute the wavelengths from the spectral modes.
-        self.red_wavelengths = getCCDbands3(self.red_spectral_mode, 'red')
-        self.blue_wavelengths = getCCDbands3(self.blue_spectral_mode, 'blue')
-
+        self.red_wavelengths, red_agg = getCCDbands3(self.red_spectral_mode, 'red')
+        self.blue_wavelengths, blue_agg = getCCDbands3(self.blue_spectral_mode, 'blue')
         # Map the Sci_?_data spatial (third index) to scan angle
-        zone_span = self.spatial_zone_lines * 360. / self.spatial_zone_lines.sum()  # Angular span of each zone
-        zone_start = np.zeros(len(zone_span)+1, dtype=zone_span.dtype)
-        zone_start[1:] = zone_span.cumsum()                                         # Start angle of each zone
-        # Compute pixels in each zone. This is a masked array with zones not represented in the data masked.
-        pixels_zone = self.spatial_zone_lines // self.spatial_aggregation
-        pixel_end = pixels_zone.cumsum()                                # Ending pixel of each recorded zone.
-
-        # From the line start index, assign a scan angle to each aggregated spatial pixel in the CCD image.
-        # Identify each pixel's zone data type.
-        self.pixel_angle = np.zeros((self.Sci_red_data.shape[2],), dtype=np.float32)
-        self.pixel_data_type = np.zeros((1, 1, self.Sci_red_data.shape[2],), dtype=np.int16)
-        for num, i_end, angle_range, angle_start, zone_type in zip(pixels_zone,
-                                                                   pixel_end,
-                                                                   zone_span,
-                                                                   zone_start,
-                                                                   self.spatial_zone_data_type):
-            if num is ma.masked:                    # If # pixels is masked, then there are no pixels
-                continue                            # Go to the next zone.
-            try:
-                self.pixel_angle[i_end-num:i_end] = angle_start + angle_range/num * range(num)
-                self.pixel_data_type[:, :, i_end-num:i_end] = zone_type
-            except ValueError:
-                if zone_type == 2:
-                    print("Warning. File appears to be old format without dark pixels in CCD image array.",
-                          file=sys.stderr)
-                    continue
-                raise
-
+        self.pixel_angle, self.pixel_data_type, spat_agg = get_CCD_pixel_type(self.spatial_zone_lines,
+                                                                              self.spatial_aggregation,
+                                                                              self.spatial_zone_data_type,
+                                                                              self.Sci_red_data.shape[2])
         self.pixel_data_type_red = np.broadcast_to(self.pixel_data_type, self.Sci_red_data.shape)
         self.pixel_data_type_blue = np.broadcast_to(self.pixel_data_type, self.Sci_blue_data.shape)
         if mask_dark:
             self.Sci_red_data = ma.masked_where(self.pixel_data_type_red != 9, self.Sci_red_data)
             self.Sci_blue_data = ma.masked_where(self.pixel_data_type_blue != 9, self.Sci_blue_data)
-
+        # Now shift the dark counts by the required amount.
+        # The number of bits to shift based on the pixels aggregated.
+        dark_shift = {1: 0, 2: 0, 4: 0, 8: 1, 16: 2, 32: 3, 64: 4}
+        self.DC_red_data = np.right_shift(self.DC_red_data, dark_shift[red_agg * spat_agg])
+        self.DC_blue_data = np.right_shift(self.DC_blue_data, dark_shift[blue_agg * spat_agg])
 
         # UNIX - double, seconds     , epoch 0h Jan 1 1970, adjusted for leapseconds
         # TAI  - double, seconds     , epoch 0h Jan 1 1958, ignores leapseconds
@@ -293,11 +298,11 @@ class READ_OCI_SPA_SPE_L1A(object):
                 oci_ccd.append(READ_OCI_SPA_SPE_L1A(file))
             oci_ccd.append_conclude()
         """
-
         if self.path is None:
             self.path = []                              # Create all of the lists.
-            self.DC_red_data_lst, self.DC_blue_data_lst = [], []
-            self.Sci_red_data_lst, self.Sci_blue_data_lst = [], []
+            self.DC_swirdata_lst, self.Sci_swir_data_lst = [], []
+            self.DC_red_data_lst, self.Sci_red_data_lst = [], []
+            self.DC_blue_data_lst, self.Sci_blue_data_lst = [], []
             self.scan_start_time_lst, self.scan_start_CCSDS_sec_lst, self.scan_start_CCSDS_usec_lst = [], [], []
             self.aux_param_table, self.blue_spectral_mode, self.red_spectral_mode = [], [], []
             self.spatial_aggregation, self.spatial_zone_data_type, self.spatial_zone_lines = [], [], []
@@ -316,18 +321,26 @@ class READ_OCI_SPA_SPE_L1A(object):
             if not np.array_equal(self.spatial_zone_lines, other.spatial_zone_lines): #, equal_nan=True):
                 raise ValueError("spatial_zone_lines values are different.")
 
+        # Assign those values of "other" that (should) be the same as "self" to self.
         self.path.append(other.path)
         self.aux_param_table = other.aux_param_table
-        self.blue_spectral_mode, self.red_spectral_mode = other.blue_spectral_mode, other.red_spectral_mode
+
+        self.red_spectral_mode =  other.red_spectral_mode
+        self.blue_spectral_mode = other.blue_spectral_mode
+        self.red_wavelengths = other.red_wavelengths
+        self.blue_wavelengths = other.blue_wavelengths
+
         self.spatial_aggregation = other.spatial_aggregation
         self.spatial_zone_data_type = other.spatial_zone_data_type
         self.spatial_zone_lines = other.spatial_zone_lines
-        self.red_wavelengths, self.blue_wavelengths = other.red_wavelengths, other.blue_wavelengths
         self.pixel_angle = other.pixel_angle
         self.pixel_data_type = other.pixel_data_type
 
+        # Append each data element to the corresponding lists.
+        self.DC_swirdata_lstdata_lst.append(other.DC_swir_data_data)
         self.DC_red_data_lst.append(other.DC_red_data)
         self.DC_blue_data_lst.append(other.DC_blue_data)
+        self.Sci_swir_data_lst.append(other.Sci_swir_data)
         self.Sci_red_data_lst.append(other.Sci_red_data)
         self.Sci_blue_data_lst.append(other.Sci_blue_data)
         self.scan_start_time_lst.append(other.scan_start_time)
@@ -345,8 +358,10 @@ class READ_OCI_SPA_SPE_L1A(object):
         """
         # Concatenate the lists into arrays, map pixel_data_type to the CCD arrays,
         # and delete the lists that were used to accumulate to de-clutter the namespace.
+        self.DC_swir_data = ma.concatenate(self.DC_swirdata_lst, axis=0)
         self.DC_red_data = ma.concatenate(self.DC_red_data_lst, axis=0)
         self.DC_blue_data = ma.concatenate(self.DC_blue_data_lst, axis=0)
+        self.Sci_swirdata = ma.concatenate(self.Sci_swir_data_lst, axis=0)
         self.Sci_red_data = ma.concatenate(self.Sci_red_data_lst, axis=0)
         self.Sci_blue_data = ma.concatenate(self.Sci_blue_data_lst, axis=0)
         self.scan_start_time = ma.concatenate(self.scan_start_time_lst, axis=0)
@@ -358,58 +373,45 @@ class READ_OCI_SPA_SPE_L1A(object):
                                                    self.Sci_red_data.shape)
         self.pixel_data_type_blue = np.broadcast_to(self.pixel_data_type,
                                                     self.Sci_blue_data.shape)
-        del self.DC_red_data_lst,  self.DC_blue_data_lst
-        del self.Sci_red_data_lst,  self.Sci_blue_data_lst
+        del self.DC_swir_data_lst,  self.DC_red_data_lst,  self.DC_blue_data_lst
+        del self.Sci_swir_data_lst,  self.Sci_red_data_lst,  self.Sci_blue_data_lst
         del self.scan_start_time_lst,  self.scan_start_TIA_lst
         del self.scan_start_CCSDS_sec_lst, self.scan_start_CCSDS_usec_lst
 
 
-    def subtract_dark(self, start=40):
+    def subtract_dark(self, start=40, dev=3):
         """Average the dark counts for each scan and subtract from each scan
 
         :param start: First index to use when computing the dark average (Default=40)
+        :param dev: Multiple of sigma to mask when computing dark level (Default=3)
         :return:
 
         .. note::
-            This method permanently modifies the data attributes in place.
+            This method permanently modifies **Sci_red_data** and **Sci_blue_data** in memory.
         """
+        DC_swir_data = self.DC_swir_data[:, :, start:].astype(np.float64)
+        DC_swir_mean = DC_swir_data.mean(axis=2, keepdims=True)
+        DC_swir_std_ = DC_swir_data.std(axis=2, keepdims=True)
+        DC_swir_mean = ma.masked_where((DC_swir_data < DC_swir_mean - dev * DC_swir_std_)
+                                    | (DC_swir_data > DC_swir_mean + dev * DC_swir_std_),
+                                      DC_swir_data).mean(axis=2, keepdims=True)
+        self.Sci_swir_data = self.Sci_swir_data.astype(np.float64) - DC_swir_mean
 
-        # DC_red_mean = self.DC_red_data[:, :, start:].mean(axis=2, dtype=np.float64, keepdims=True)
-        DC_blue_mean = self.DC_blue_data[:, :, start:].mean(axis=2, dtype=np.float64, keepdims=True)
+        DC_red_data = self.DC_red_data[:, :, start:].astype(np.float64)
+        DC_red_mean = DC_red_data.mean(axis=2, keepdims=True)
+        DC_red_std_ = DC_red_data.std(axis=2, keepdims=True)
+        DC_red_mean = ma.masked_where((DC_red_data < DC_red_mean - dev * DC_red_std_)
+                                    | (DC_red_data > DC_red_mean + dev * DC_red_std_),
+                                      DC_red_data).mean(axis=2, keepdims=True)
+        self.Sci_red_data = self.Sci_red_data.astype(np.float64) - DC_red_mean
 
-        dev = 3
-        DC_red_data = self.DC_red_data.astype(np.float64)
-        DC_red_mean =  DC_red_data[:, :, start:].mean(axis=2, dtype=np.float64, keepdims=True)
-        DC_red_std_1 = DC_red_data[:, :, start:].std(axis=2, dtype=np.float64, keepdims=True)
-        # DC_red_std = DC_red_std_1.copy()
-        # i_large = np.nonzero(DC_red_data > DC_red_mean + dev * DC_red_std)
-        # print("i_large")
-        # print(np.asarray(i_large).shape)
-        # pprint(i_large)
-        # i_small = np.nonzero(DC_red_data < DC_red_mean - dev * DC_red_std)
-        # print("i_small")
-        # print(np.asarray(i_small).shape)
-        # pprint(i_small)
-
-        # DC_red_mean = DC_red_mean.mean(axis=0, dtype=np.float64, keepdims=True)
-        # DC_red_std_2 = DC_red_data.std(axis=0, dtype=np.float64, keepdims=True)
-        # DC_red_std = DC_red_std_2.copy()
-        # i_large = np.nonzero(DC_red_data > DC_red_mean + dev * DC_red_std)
-        # print("i_large")
-        # print(np.asarray(i_large).shape)
-        # pprint(i_large)
-        # i_small = np.nonzero(DC_red_data < DC_red_mean - dev * DC_red_std)
-        # print("i_small")
-        # print(np.asarray(i_small).shape)
-        # pprint(i_small)
-
-
-        DC_red_mean = ma.masked_where((DC_red_data[:, :, start:] < DC_red_mean - 3 * DC_red_std_1)
-                                    | (DC_red_data[:, :, start:] > DC_red_mean + 3 * DC_red_std_1),
-                                      DC_red_data[:, :, start:]).mean(axis=2, keepdims=True)
-
-        self.Sci_red_data = self.Sci_red_data[:, :, :, ].astype(np.float64) - DC_red_mean
-        self.Sci_blue_data = self.Sci_blue_data.astype(np.float64) - DC_blue_mean
+        DC_blue_data = self.DC_blue_data[:, :, start:].astype(np.float64)
+        DC_blue_mean = DC_blue_data.mean(axis=2, keepdims=True)
+        DC_blue_std_ = DC_blue_data.std(axis=2, keepdims=True)
+        DC_blue_mean = ma.masked_where((DC_blue_data < DC_blue_mean - dev * DC_blue_std_)
+                                    | (DC_blue_data > DC_blue_mean + dev * DC_blue_std_),
+                                      DC_blue_data).mean(axis=2, keepdims=True)
+        self.Sci_blue_data = self.Sci_blue_data.astype(np.float64) - DC_red_mean
 
 
     def select__data_type(self, data_type):
