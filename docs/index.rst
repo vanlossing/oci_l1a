@@ -10,6 +10,8 @@ Welcome to OCI L1a's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+.. include:: ./README.rst
+
 Methods defined by **read_oci_1a_class**
 ++++++++++++++++++++++++++++++++++++++++
 .. automodule:: read_oci_1a_class

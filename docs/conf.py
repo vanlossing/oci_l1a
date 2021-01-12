@@ -23,7 +23,7 @@ copyright = '2020, Christopher Field'
 author = 'Christopher Field'
 
 # The full version, including alpha/beta/rc tags
-release = '0.1.0'
+release = '0.2.0'
 
 
 # -- General configuration ---------------------------------------------------
@@ -55,3 +55,8 @@ html_theme = 'alabaster'
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+# Added to remove blank pages from latex output.
+# See https://stackoverflow.com/questions/5422997/sphinx-docs-remove-blank-pages-from-generated-pdfs
+# or https://www.topbug.net/blog/2015/12/11/a-collection-of-issues-about-the-latex-output-in-sphinx-and-the-solutions/
+latex_elements = { 'classoptions': ',openany,oneside' }

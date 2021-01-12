@@ -14,7 +14,7 @@ with open('README.rst') as f:
 
 setup(
     name='oci_l1a',
-    version='0.1.0',
+    version='0.2.0',
     description="Package to read Level 1A data from PACE OCI",
     long_description=readme,
     author="Christopher Field",
