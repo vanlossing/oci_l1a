@@ -3,3 +3,6 @@ netCDF4
 numpy
 
 sphinx
+
+python_pptx_helper
+

@@ -21,5 +21,6 @@ setup(
     author_email="Christopher.T.Field@nasa.gov",
     url='Not yet defined',
     # license=license,
-    packages=find_packages(exclude=('tests', 'docs'))
+    packages=find_packages(exclude=('tests', 'docs'),
+                           install_requires=['matplotlib', 'netCDF4', 'numpy'])
 )
