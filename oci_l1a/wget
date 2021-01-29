@@ -1,0 +1,4 @@
+
+wget -q  --post-data="sdate=2020-12-07&edate=2020-12-07&results_as_file=1&addurl=1&search=*OCI*L1A*" -O ./list  https://oceandata.sci.gsfc.nasa.gov/api/file_search
+
+wget -q --load-cookies ~/oci_odps.urs_cookies --save-cookies ~/oci_odps.urs_cookies --auth-no-challenge=on --keep-session-cookies --content-disposition -P ./  https://oceandata.sci.gsfc.nasa.gov/cgi/getfile/PACE_OCI_2020342012.20201207T140000.L1A.nc
