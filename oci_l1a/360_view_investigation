@@ -1,0 +1,387 @@
+# coding: utf-8
+
+# # Investigation of the 360 degree views
+# On 23 Janurary 2021 during the LPT in TVac, scans were taken of the full 360 degree view. This notebook investigates the results of those scans.
+
+# In[1]:
+
+# %matplotlib osx
+import datetime
+from pathlib import Path
+from pprint import pprint
+
+from matplotlib import pyplot as plt
+import numpy as np
+
+import oci_l1a.read_oci_1a_class as oci
+# from python_pptx_helper.create_ppt import create_ppt    # Need to write Power Point
+
+
+# In[2]:
+
+folder = Path("/Users/cfield/Documents/PACE/Data/360_view/")
+# files = oci_ss.get_pace_oci_l1a_files(folder, "T144")
+
+PPX_INPUT = Path("/Users/cfield/Documents/PACE/python_code/Presentation_template_in2.pptx")
+PPX_OUTPUT = Path("/Users/cfield/Documents/PACE/scan_360.pptx")
+FIG_PATH = Path("/Users/cfield/Desktop/temp/")
+
+
+# In[3]:
+
+figsize = (11.5, 5.75)                      # Define figure layout
+figsize = (9, 5.75)                      # Define figure layout
+figsize2 = (6.8, 5.33)                      # Define figure layout
+gridspec_kw = {"left" : 0.1,
+               "right" : 0.99,
+               "top" : 0.90,
+               "bottom" : 0.2,
+               "wspace" : 0.10,
+               "hspace" : 0.20,
+               "height_ratios" : [1, 2]
+                           }
+
+
+# In[4]:
+
+files = oci.get_pace_oci_l1a_files(folder)
+pprint(files)
+
+
+# In[5]:
+
+slides_lst = [{"layout" : 0,
+               "text" : [(0, "360 Scan Results"),
+                         (1, "Generated on {:%m-%d-%Y}\n by Christopher T. Field"
+                                .format(datetime.date.today()))]
+              },
+                {"layout" : 1,
+                 "text" : [(0, "Overview"),
+                           (1, "On 23 January 2021, about 2 minutes of data was collected over a 360 degree scan.\n"
+                               "The results are in files 'PACE_OCI_2021023093.20210123T144741.L1A.nc' and "
+                               "'PACE_OCI_2021023093.20210123T144800.L1A.nc'\n"
+                               "The Earth View appears to be dark.\n"
+                               "Generally, the scan is uniformly 'dark' except for SWIR wavelengths 2130 and 2260 "
+                               "which are able to 'see' the room's thermal emissions.\n"
+                               "The following slides show images of the spatial/spectral results for each file "
+                               "and line plots along the scan direction of the SWIR bands.\n"
+                               "The presentation finishes with images and line plot generated from the means of "
+                               "both files, providing a smaller variation.")
+                          ]
+           },
+]
+for i, file in enumerate(files):
+    print(i, file)
+    oci_ss = oci.READ_OCI_SPA_SPE_L1A(file)
+#     print('oci_1.pixel_angle')
+#     print(oci_1.pixel_angle)
+    print('oci_ss.spatial_zone_data_type')
+    print(oci_ss.spatial_zone_data_type)
+    print('oci_ss.spatial_zone_lines')
+    print(oci_ss.spatial_zone_lines)
+    print('oci_ss.spatial_aggregation')
+    print(oci_ss.spatial_aggregation)
+
+#     oci_1.select_data_type(1)
+#     oci_1.subtract_dark(start=0)
+    # Used for the images.
+    fig1, ax1 = plt.subplots(2, 2, sharex='col', sharey='row',
+                            figsize=figsize, gridspec_kw=gridspec_kw)
+    fig1.suptitle(file.name)
+    ax1[0, 0].set_title("Mean Computed Cross Track/Along Scan")
+    ax1[0, 1].set_title("Mean Computed Along Track/Cross Scan")
+    ax1[0, 0].set_ylabel("Spectral Band (nm)")
+    ax1[1, 0].set_ylabel("Spectral Band (nm)")
+    ax1[-1, 0].set_xlabel("Scan Start Time")
+    ax1[-1, 1].set_xlabel("Pixel Angle (deg)")
+    ax1[-1, 0].tick_params(axis='x', labelrotation=90)
+    ax1[-1, 1].tick_params(axis='x', labelrotation=90)
+
+    fig2, ax2 = plt.subplots(9, 1, sharex=True, figsize=figsize2)
+    fig2.suptitle(file.name)
+    ax2[-1].set_xlabel("Pixel Angle  from Nadir (deg)")
+    ax2[0].set_title("Invensity vs Scan Angle (Averaged along track.)")
+    ax2[-1].tick_params(axis='x', labelrotation=90)
+
+#     plot_data(data_source, ax, vlim=None, func=<function mean>)
+    oci_ss.Sci_swir_data[:, :, 0].mask = True
+#     oci_1.Sci_swir_data[:, 1, :] -= np.asarray([2000], dtype=np.uint32)
+    try:
+        pass
+        image0 = oci_ss.plot_data("swir", ax=ax1[0, :], cmap=None)
+        image1 = oci_ss.plot_data("red", ax=ax1[1, :], cmap=None)
+    except Exception as e:
+        print("Failed to plot item {:}, file {:}. Skipping to next.".format(i, file))
+        raise
+        continue
+
+    swir_mean = oci_ss.Sci_swir_data.mean(axis=0)
+    swir_std = oci_ss.Sci_swir_data.std(axis=0)
+    for ii in range(9):
+        ax2[8-ii].plot(oci_ss.pixel_angle - oci.PPR2NADIR, swir_mean[ii, :], linewidth=0.1)
+#         l = ax2[8-i].set_ylabel("{:.0f} nm                  .".format(oci_ss.swir_wavelengths[i]), rotation=0)
+        ax2[8-ii].set_ylabel("{:.0f}".format(oci_ss.swir_wavelengths[ii]))
+    ax2[7].set_ylim(4248, 4253)
+
+    fig1.canvas.draw()
+    path_fig1 = FIG_PATH / "scan_360_image{:03d}.png".format(i)
+    fig1.savefig(path_fig1)
+    fig2.canvas.draw()
+    path_fig2 = FIG_PATH / "scan_360_lines{:03d}.png".format(i)
+    fig2.savefig(path_fig2)
+
+    slides_lst.extend([{"layout" : 12,
+                        "text" : [(0, "360 Degree Scan."),
+                                  (13, "Source data from {:}".format(file.name)),
+                                  (14, "Left column is the mean along each scan "
+                                       "(results a function of scan start time.)\n"
+                                       "Right column is the mean for each pixel (angle) "
+                                       "computed for all scans.\n"
+                                       "No dark subtraction.\n"
+                                       "Results appear uniform for all angles "
+                                       "and for all scan start times")
+                                 ],
+                        "picture" : [(1, str(path_fig1))]
+                       },
+                       {"layout" : 8,
+                        "text" : [(0, "360 Degree Scan."),
+                                  (2, "Average dark level around the 360 degree scan.\n"
+                                      "Average is computed along track/cross scan.\n"
+                                      "Wavelength (nm) indicated by y axis label.\n"
+                                      "Response seems flat for wavelengths less than 2000 nm.\n"
+                                      "The 2130 and 2260 nm bands 'see' the cold chamber shroud "
+                                      "and the room temperature Earth View window."),
+                                 ],
+                        "picture" : [(1, str(path_fig2))]
+                       },
+                     ])
+    plt.show()
+# create_ppt(PPX_INPUT, PPX_OUTPUT, slides_lst, show_placeholders=False)
+
+
+# In[6]:
+
+oci_ss = oci.READ_OCI_SPA_SPE_L1A()
+for i, file in enumerate(files):
+    print(i, file)
+    oci_ss.append(oci.READ_OCI_SPA_SPE_L1A(file), droplast=True)
+oci_ss.append_conclude()
+# print('oci_ss.pixel_angle')
+# print(oci_ss.pixel_angle)
+
+print(oci_ss.Sci_swir_data[0, :, :10])
+# Used for the images.
+fig1, ax1 = plt.subplots(2, 2, sharex='col', sharey='row',
+                        figsize=figsize, gridspec_kw=gridspec_kw)
+fig1.suptitle("All 360 Degree Scan Files.")
+ax1[0, 0].set_title("Mean Computed Cross Track/Along Scan")
+ax1[0, 1].set_title("Mean Computed Along Track/Cross Scan")
+ax1[0, 0].set_ylabel("Spectral Band (nm)")
+ax1[1, 0].set_ylabel("Spectral Band (nm)")
+ax1[-1, 0].set_xlabel("Scan Start Time")
+ax1[-1, 1].set_xlabel("Pixel Angle (deg)")
+ax1[-1, 0].tick_params(axis='x', labelrotation=90)
+ax1[-1, 1].tick_params(axis='x', labelrotation=90)
+
+oci_ss.Sci_swir_data[:, :, 0].mask = True
+#     oci_1.Sci_swir_data[:, 1, :] -= np.asarray([2000], dtype=np.uint32)
+try:
+    pass
+    image0 = oci_ss.plot_data("swir", ax=ax1[0, :], cmap=None)
+    image1 = oci_ss.plot_data("red", ax=ax1[1, :], cmap=None)
+except Exception as e:
+    print("Failed to plot item {:}, file {:}. Skipping to next.".format(i, file))
+    raise
+#     continue
+fig1.canvas.draw()
+path_fig1 = FIG_PATH / "scan_360_image_both.png"
+fig1.savefig(path_fig1)
+
+
+oci_ss.Sci_red_data[:, :, :8].mask = False
+red_mean = oci_ss.Sci_red_data.mean(axis=0)
+red_std = oci_ss.Sci_red_data.std(axis=0)
+
+fig2, ax2 = plt.subplots(8, 1, sharex=True, figsize=figsize2)
+fig2.suptitle("All 360 Degree Scan Files. Select Visible Bands")
+ax2[0].set_title("Invensity vs Scan Angle (Averaged along track.)")
+ax2[-1].set_xlabel("Pixel Number from PPR")
+# ax2[-1].set_xlabel("Pixel Angle  from Nadir (deg)")
+ax2[-1].tick_params(axis='x', labelrotation=90)
+
+for iii in range(0, 8):
+    ii = iii * 8
+#     ax2[7-iii].plot(oci_ss.pixel_angle - oci.PPR2NADIR, red_mean[ii, :], linewidth=1)
+    ax2[7-iii].plot(red_mean[ii, :60], linewidth=1)
+    ax2[7-iii].set_ylabel("{:.0f}".format(oci_ss.red_wavelengths[ii]))
+fig2.canvas.draw()
+path_fig2_vis_start = FIG_PATH / "scan_360_lines_both_vis_start.png"
+fig2.savefig(path_fig2_vis_start)
+
+fig2_, ax2_ = plt.subplots(8, 1, sharex=True, figsize=figsize2)
+fig2_.suptitle("All 360 Degree Scan Files. Select Visible Bands")
+ax2_[0].set_title("Invensity vs Scan Angle (Averaged along track.)")
+ax2_[-1].set_xlabel("Pixel Number from PPR")
+# ax2[-1].set_xlabel("Pixel Angle  from Nadir (deg)")
+ax2_[-1].tick_params(axis='x', labelrotation=90)
+
+j = range(60, red_mean.shape[1])
+for iii in range(0, 8):
+    ii = iii * 8
+#     ax2[7-iii].plot(oci_ss.pixel_angle - oci.PPR2NADIR, red_mean[ii, :], linewidth=1)
+    ax2_[7-iii].plot(j, red_mean[ii, j], linewidth=1)
+    ax2_[7-iii].set_ylabel("{:.0f}".format(oci_ss.red_wavelengths[ii]))
+# ax2_[-1].set_xlabel("Pixel Angle  from Nadir (deg)")
+fig2_.canvas.draw()
+path_fig2_vis_rest = FIG_PATH / "scan_360_lines_both_vis_rest.png"
+fig2_.savefig(path_fig2_vis_rest)
+
+
+fig3, ax3 = plt.subplots(9, 1, sharex=True, figsize=figsize2)
+fig3.suptitle("All 360 Degree Scan Files.")
+ax3[-1].set_xlabel("Pixel Angle  from Nadir (deg)")
+ax3[0].set_title("Invensity vs Scan Angle (Averaged along track.)")
+ax3[-1].tick_params(axis='x', labelrotation=90)
+
+oci_ss.Sci_swir_data[:, :, :8].mask = True
+swir_mean = oci_ss.Sci_swir_data.mean(axis=0)
+swir_std = oci_ss.Sci_swir_data.std(axis=0)
+for ii in range(9):
+    ax3[8-ii].plot(oci_ss.pixel_angle - oci.PPR2NADIR, swir_mean[ii, :], linewidth=0.1)
+#         l = ax2[8-i].set_ylabel("{:.0f} nm                  .".format(oci_1.swir_wavelengths[i]), rotation=0)
+    ax3[8-ii].set_ylabel("{:.0f}".format(oci_ss.swir_wavelengths[ii]))
+# ax3[7].set_ylim(4248, 4253)
+
+fig3.canvas.draw()
+path_fig3 = FIG_PATH / "scan_360_lines_both_swir.png"
+fig3.savefig(path_fig3)
+
+slides_lst.extend([{"layout" : 12,
+                    "text" : [(0, "360 Degree Scan: Both Files"),
+                              (13, "Source data from {:}".format(file.name)),
+                              (14, "Left column is the mean along each scan "
+                                   "(results a function of scan start time.)\n"
+                                   "Right column is the mean for each pixel (angle) "
+                                   "computed for all scans.\n"
+                                   "No dark subtraction.\n"
+                                   "Results appear uniform for all angles "
+                                   "and for all scan start times")
+                             ],
+                    "picture" : [(1, str(path_fig1))]
+                   },
+                   {"layout" : 8,
+                    "text" : [(0, "360 Degree Scan. Select Visible Bands."),
+                              (2, "These plots show the 'turn on' transient. \n"
+                                  "On some bands, it lasts 60 or so science pixels.\n"
+                                  "Other bands respond faster.\n"
+                                  "Wavelength (nm) indicated by y axis label.\n"),
+                             ],
+                    "picture" : [(1, str(path_fig2_vis_start))]
+                   },
+
+                  {"layout" : 8,
+                    "text" : [(0, "360 Degree Scan. Select Visible Bands."),
+                              (2, "Plots after the 60 pixel turn on transient. \n"
+                                  "Average is computed along track/cross scan.\n"
+                                  "Response seems flat for all wavelengths.\n"
+                                  "Wavelength (nm) indicated by y axis label.\n"),
+                             ],
+                    "picture" : [(1, str(path_fig2_vis_rest))]
+                   },
+                  {"layout" : 8,
+                    "text" : [(0, "360 Degree Scan."),
+                              (2, "Average dark level around the 360 degree scan.\n"
+                                  "Average is computed along track/cross scan.\n"
+                                  "Wavelength (nm) indicated by y axis label.\n"
+                                  "Plots and standard deviations start after science pixel 8.\n"
+                                  "Response seems flat for wavelengths less than 2000 nm.\n"
+                                  "The 2130 and 2260 nm bands 'see' the cold chamber shroud "
+                                  "and the room temperature Earth View window.\n"
+                                  "Wavelength (nm) indicated by y axis label.\n"),
+                             ],
+                    "picture" : [(1, str(path_fig3))]
+                   },
+                 ])
+# plt.show()
+# create_ppt(PPX_INPUT, PPX_OUTPUT, slides_lst, show_placeholders=False)
+
+
+# In[7]:
+
+# Write the SWIR levels to a csv file.
+heading = "".join(["Angle"] + [", {:.0f}".format(w) for w in oci_ss.swir_wavelengths])
+fname = "/Users/cfield/Desktop/temp/swir_vs_angle.csv"
+np.savetxt(fname,
+           np.hstack(((oci_ss.pixel_angle - oci.PPR2NADIR).reshape(-1,1), swir_mean.T)),
+           fmt='%.3f',
+           delimiter=',',
+           header=heading)
+
+
+# In[ ]:
+
+# In[8]:
+
+print(swir_mean[:, 8:].std(axis=1))
+print(oci_ss.swir_wavelengths)
+
+
+# In[ ]:
+
+# In[ ]:
+
+# In[ ]:
+
+# In[9]:
+
+oci_ss.Sci_red_data.dtype = np.int16
+for i in range(oci_ss.Sci_red_data.shape[1]):
+    oci_ss.Sci_red_data[:, i, :] -= oci_ss.Sci_red_data[:, i, 8:].mean().astype(np.int16)
+oci_ss.Sci_swir_data.dtype = np.int32
+for i in range(oci_ss.Sci_swir_data.shape[1]):
+    oci_ss.Sci_swir_data[:, i, :] -= oci_ss.Sci_swir_data[:, i, 8:].mean().astype(np.int32)
+
+
+# In[10]:
+
+fig1, ax1 = plt.subplots(2, 2, sharex='col', sharey='row',
+                        figsize=figsize, gridspec_kw=gridspec_kw)
+fig1.suptitle("All 360 Degree Scan Files.")
+ax1[0, 0].set_title("Mean Computed Cross Track/Along Scan")
+ax1[0, 1].set_title("Mean Computed Along Track/Cross Scan")
+ax1[0, 0].set_ylabel("Spectral Band (nm)")
+ax1[1, 0].set_ylabel("Spectral Band (nm)")
+ax1[-1, 0].set_xlabel("Scan Start Time")
+ax1[-1, 1].set_xlabel("Pixel Angle (deg)")
+ax1[-1, 0].tick_params(axis='x', labelrotation=90)
+ax1[-1, 1].tick_params(axis='x', labelrotation=90)
+
+image0 = oci_ss.plot_data("swir", ax=ax1[0, :], vlim=((-2, 2), (-2, 2)), cmap=None)
+image1 = oci_ss.plot_data("red", ax=ax1[1, :], vlim=((-2, 2), (-2, 2)), cmap=None)
+
+fig1.canvas.draw()
+path_fig1 = FIG_PATH / "scan_360_image_both_zero_mean.png"
+fig1.savefig(path_fig1)
+
+slides_lst.extend([{"layout" : 12,
+                    "text" : [(0, "360 Degree Scan: Mean Subtraction."),
+                              (13, "Source data from {:}".format(file.name)),
+                              (14, "From each spectral band, subtract that bands mean level.\n"
+                                   "The mean was computed starting with spatial pixel 8.\n"
+                                   "Results still appear uniform for all angles and for all "
+                                   "scan start times except for 2130 and 2260 nm.\n"
+                                   "For the visible bands, the ‘turn on’ transient is "
+                                   "visible at the left of lower right plot.")
+                             ],
+                    "picture" : [(1, str(path_fig1))]
+                   },
+                   {"layout" : 1,
+                    "text" : [(0, "Conclusion."),
+                              (1, "SWIR bands seem flat around the scan except for "
+                                  "2130 and 2260 nm bands which see the thermal "
+                                  "emission of the instrument interior.")
+                              ]}
+                 ])
+plt.show()
+# This next line writes to the Power Point file. Uncomment to actually write them.
+# create_ppt(PPX_INPUT, PPX_OUTPUT, slides_lst, show_placeholders=False)

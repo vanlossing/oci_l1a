@@ -28,7 +28,7 @@ from pprint import pprint
 import sys
 
 from matplotlib import pyplot as plt
-import matplotlib as mpl            # Used to get color map.
+import matplotlib as mpl            # Used to get color map and formatter
 # from mpl_toolkits.mplot3d import axes3d
 from netCDF4 import Dataset         # https://unidata.github.io/netcdf4-python/netCDF4/index.html
 import numpy as np
@@ -60,15 +60,32 @@ TIA2UTC = 37        # Subtract this from TIA to yield UTC times (sec).
 
 
 def get_pace_oci_l1a_files(path, pattern=""):
-    """Return from path a sorted list of PACE OCI L1A files with that match the pattern.
+    """Return from path a sorted list of PACE OCI L1A files that match the pattern.
 
     :param path: Path to a folder with OCI L1A files.
     :param pattern: Center of pattern to match
-    :return: Sorted list of files that match pattern.
+    :return: Sorted list of full paths that match pattern.
 
     If pattern == "" (default), the file match is made against "PACE_OCI_*.L1A.nc".
     If pattern starts with "/", the file match is made against pattern[1:].
     Otherwise, the file match is made against "PACE_OCI_*" + pattern + "*.L1A.nc"
+
+    For example,
+    line 2 of the following will return a sorted list of the full
+    path of all files that match "PACE_OCI_*.L1A.nc".
+    Line 3 returns a sorted list of the full path of all files that match
+    "PACE_OCI_20200102.nc" exactly; in this case, a single file.
+    Line 4 will return a list of all files generated on 2020 January 05.
+
+    .. code-block:: python
+       :linenos:
+
+        import oci_l1a.read_oci_1a_class as oci_ss
+        path = "/path/to/my/data/"
+        files = oci_ss.get_pace_oci_l1a_files(path)
+        files = oci_ss.get_pace_oci_l1a_files(path, "PACE_OCI_20200102.nc")
+        files = oci_ss.get_pace_oci_l1a_files(path, "20200105")
+
     """
     if not isinstance(path, Path):
         path = Path(path)
@@ -193,6 +210,7 @@ class READ_OCI_SPA_SPE_L1A(object):
            #. **spatial_zone_data_type**: The spatial_zone_data_type values read from the file.
            #. **spatial_zone_lines**: The spatial_zone_lines values read from the file.
 
+           #. **swir_wavelengths**: The center wavelength of each swir CCD spectral band (nm) (Length 9).
            #. **red_wavelengths**: The center wavelength of each red CCD spectral band (nm) (Length N_wr).
            #. **blue_wavelengths**: The center wavelength of each blue CCD spectral band (nm) (Length N_wb).
            #. **pixel_angle**: The scan angle from the start marker of each spatial pixel (deg) (Length N_p).
@@ -249,6 +267,19 @@ class READ_OCI_SPA_SPE_L1A(object):
             **https://hpiers.obspm.fr/iers/bul/bulc/ntp/**. In particular,
             **https://hpiers.obspm.fr/iers/bul/bulc/ntp/leap-seconds.list**. Also see
             **ftp://ftp.nist.gov/pub/time/leap-seconds.list**
+
+        Typical use::
+
+            import oci_l1a.read_oci_1a_class as oci
+            path = "/path/to/my/data/"                  # Source folder
+            files = oci.get_pace_oci_l1a_files(path)    # Get file paths
+            oci_ccd = oci.READ_OCI_SPA_SPE_L1A(files[0])
+            oci_ccd.subtract_dark()                     # Subtract the dark values
+            oci_ccd.select_data_type(data_type=1)       # Trim to Earth View pixels only.
+            print("Red Wavelengths")
+            print(oci_ccd.red_wavelengths)
+            print("Red Intensities")
+            print(oci_ccd.Sci_red_data)
 
         .. note::
             The following methods permanently modify the data attributes in place.:
@@ -339,10 +370,19 @@ class READ_OCI_SPA_SPE_L1A(object):
 
         Typical use::
 
-            oci_ccd = READ_OCI_SPA_SPE_L1A()
-            for file in files:
-                oci_ccd.append(READ_OCI_SPA_SPE_L1A(file))
-            oci_ccd.append_conclude()
+            import oci_l1a.read_oci_1a_class as oci
+            path = "/path/to/my/data/"                  # Source folder
+            files = oci.get_pace_oci_l1a_files(path)
+            oci_ccd = oci.READ_OCI_SPA_SPE_L1A()        # Create empty instance
+            for file in files:                          # Loop through the files
+                oci_ccd.append(oci.READ_OCI_SPA_SPE_L1A(file))  # and append
+            oci_ccd.append_conclude()                   # Wrap up
+            oci_ccd.subtract_dark()                     # Subtract the dark values
+            oci_ccd.select_data_type(data_type=1)       # Trim to Earth View pixels only.
+            print("Red Wavelengths")
+            print(oci_ccd.red_wavelengths)
+            print("Red Intensities")
+            print(oci_ccd.Sci_red_data)
         """
         if self.path is None:
             self.path = []                              # Create all of the lists.
@@ -374,6 +414,7 @@ class READ_OCI_SPA_SPE_L1A(object):
 
         self.red_spectral_mode = other.red_spectral_mode
         self.blue_spectral_mode = other.blue_spectral_mode
+        self.swir_wavelengths = other.swir_wavelengths
         self.red_wavelengths = other.red_wavelengths
         self.blue_wavelengths = other.blue_wavelengths
 
@@ -453,7 +494,8 @@ class READ_OCI_SPA_SPE_L1A(object):
         :return:
 
         .. note::
-            This method permanently modifies **Sci_red_data** and **Sci_blue_data** in memory.
+            This method permanently modifies **Sci_swir_data**, **Sci_red_data**,
+             and **Sci_blue_data** in memory.
         """
         # # For each dark array, compute the mean and std in the scan direction. Use these to mask outliers.
         # # Recompute the along scan mean. Subtract that value from all of the science data.
@@ -485,25 +527,21 @@ class READ_OCI_SPA_SPE_L1A(object):
         # Recompute the along scan mean. Subtract that value from all of the science data.
         if 1:               # Old calculation
             DC_swir_data = self.DC_swir_data[:, :, start:].astype(np.float64)
-            # DC_swir_data = self.Sci_swir_data               # ToDo. Temporary line. Remove
             DC_swir_mean = DC_swir_data.mean(axis=2, keepdims=True)
             DC_swir_std_ = DC_swir_data.std(axis=2, keepdims=True)
             DC_swir_mean = ma.masked_where((DC_swir_data < DC_swir_mean - dev * DC_swir_std_)
                                          | (DC_swir_data > DC_swir_mean + dev * DC_swir_std_),
                                             DC_swir_data).mean(axis=2, keepdims=True)
-            # DC_swir_mean = DC_swir_mean.mean(axis=0, keepdims=True) # ToDo. Temporary line. Remove
-            print(DC_swir_mean.shape)
             self.Sci_swir_data = self.Sci_swir_data.astype(np.float64) - DC_swir_mean
 
             DC_red_data = self.DC_red_data[:, :, start:].astype(np.float64)
-            # DC_red_data = self.Sci_red_data               # ToDo. Temporary line. Remove
             DC_red_mean = DC_red_data.mean(axis=2, keepdims=True)
             DC_red_std_ = DC_red_data.std(axis=2, keepdims=True)
             DC_red_mean = ma.masked_where((DC_red_data < DC_red_mean - dev * DC_red_std_)
                                         | (DC_red_data > DC_red_mean + dev * DC_red_std_),
                                            DC_red_data).mean(axis=2, keepdims=True)
             # DC_red_mean = DC_red_mean.mean(axis=0, keepdims=True)   # ToDo. Temporary line. Remove
-            print(DC_red_mean.shape)
+            # print(DC_red_mean.shape)
             self.Sci_red_data = self.Sci_red_data.astype(np.float64) - DC_red_mean
 
             DC_blue_data = self.DC_blue_data[:, :, start:].astype(np.float64)
@@ -513,23 +551,20 @@ class READ_OCI_SPA_SPE_L1A(object):
                                         | (DC_blue_data > DC_blue_mean + dev * DC_blue_std_),
                                           DC_blue_data).mean(axis=2, keepdims=True)
             DC_blue_mean = DC_blue_mean.mean(axis=0, keepdims=True)
-            print(DC_blue_mean.shape)
+            # print(DC_blue_mean.shape)
             self.Sci_blue_data = self.Sci_blue_data.astype(np.float64) - DC_blue_mean
 
         else:
             DC_swir_mean = mask_outliers(self.DC_swir_data[:, :, start:].astype(np.float64)
                                          ).mean(axis=2, keepdims=True)
-            print(DC_swir_mean.shape)           # TODO. Remove print statement
             self.Sci_swir_data = self.Sci_swir_data.astype(np.float64) - DC_swir_mean
 
             DC_red_mean = mask_outliers(self.DC_red_data[:, :, start:].astype(np.float64)
                                         ).mean(axis=2, keepdims=True)
-            print(DC_red_mean.shape)            # TODO. Remove print statement
             self.Sci_red_data = self.Sci_red_data.astype(np.float64) - DC_red_mean
 
             DC_blue_mean = mask_outliers(self.DC_blue_data[:, :, start:].astype(np.float64)
                                          ).mean(axis=2, keepdims=True)
-            print(DC_blue_mean.shape)           # TODO. Remove print statement
             self.Sci_blue_data = self.Sci_blue_data.astype(np.float64) - DC_blue_mean
 
     def select_data_type(self, data_type=1):
@@ -571,7 +606,22 @@ class READ_OCI_SPA_SPE_L1A(object):
 
         Typical use::
 
-            fig, ax = plt.subplots(2, 2, sharex="col", sharey="row")
+            from matplotlib import pyplot as plt
+            import oci_l1a.read_oci_1a_class as oci
+            files = oci.get_pace_oci_l1a_files(path)    # Get file paths
+            file = files[2]                             # Select one file
+            figsize = (11.5, 5.75)                      # Define figure layout
+            gridspec_kw = {"left" : 0.1,
+                           "right" : 0.99,
+                           "top" : 0.90,
+                           "bottom" : 0.2,
+                           "wspace" : 0.10,
+                           "hspace" : 0.20,
+                           "height_ratios" : [1, 2]
+                           }
+            fig, ax = plt.subplots(2, 2, sharex="col", sharey="row",
+                figsize=figsize, gridspec_kw=gridspec_kw)
+            fig.suptitle(file)
             ax[0, 0].set_title("Mean Computed Cross Track/Along Scan")
             ax[0, 1].set_title("Mean Computed Along Track/Cross Scan")
             ax[0, 0].set_ylabel("Spectral Band (nm)")
@@ -581,20 +631,18 @@ class READ_OCI_SPA_SPE_L1A(object):
             ax[-1, 0].tick_params(axis='x', labelrotation=90)
             ax[-1, 1].tick_params(axis='x', labelrotation=90)
 
-            for i, file in enumerate(files):
-                print(i, file)
-                oci_1 = oci_ss.READ_OCI_SPA_SPE_L1A(file)
-                oci_1.select_data_type(1)
-                oci_1.subtract_dark(start=0)
-                try:
-                    image0 = plot_data(oci_1, "swir", ax=ax[0, :])
-                    image1 = plot_data(oci_1, "red", ax=ax[1, :])
-                except Exception as e:
-                    print("Failed to plot item {:}, file {:}. Skipping to next.".format(i, file))
-                    continue
-                fig.canvas.draw()
-                path_fig = FIG_PATH / "stray_light_auto_2{:03d}.png".format(i)
-                fig.savefig(path_fig)
+            oci_1 = oci.READ_OCI_SPA_SPE_L1A(file)      # Read a file data
+            oci_1.select_data_type(1)                   # Restrict to Earth View
+            oci_1.subtract_dark(start=0)                # Dark subtraction.
+            try:                # This try is more important when looping
+                image0 = oci_1.plot_data("swir", ax=ax[0, :], )
+                image1 = oci_1.plot_data("red", ax=ax[1, :])
+            except Exception as e:
+                print("Failed to plot item {:}, file {:}. "
+                    "Skipping to next.".format(i, file))
+                raise
+                continue        # Use when in a loop instead of raise
+            plt.show()
         """
 
         if data_source == "blue":
@@ -627,7 +675,7 @@ class READ_OCI_SPA_SPE_L1A(object):
         ev_ct_mean = func(ev, axis=2).T
         ev_at_mean = func(ev, axis=0)
 
-        if vlim == 'auto':  # Set color range to data range
+        if (vlim == 'auto') or vlim is None:  # Set color range to data range
             vlim = ((ev_ct_mean.min(), ev_ct_mean.max()),
                     (ev_at_mean.min(), ev_at_mean.max()))
         print("{:6.3f}  {:6.3f}    {:6.3f}  {:6.3f}"
@@ -636,7 +684,9 @@ class READ_OCI_SPA_SPE_L1A(object):
         fig = ax[0].get_figure()
 
         images = ax[0].get_images(), ax[1].get_images()
+        print(images)
         if (len(images[0]) == 0) or (len(images[1]) == 0):
+            print("Creating images")
             # Create the two images. Add colorbars and the text box (Max Pixel) to the axes.
             # gid='max' is to find it again.
             images = (ax[0].imshow(ev_ct_mean, aspect='auto', origin='lower', cmap="gray"),
@@ -655,10 +705,13 @@ class READ_OCI_SPA_SPE_L1A(object):
             images = (images[0][0], images[1][0])
             im0_size, im1_size = images[0].get_size(), images[1].get_size()
 
-            if im0_size != ev_ct_mean.shape:    # Pad the new image if smaller than current
+            if im0_size != ev_ct_mean.shape:        # Pad the new image if smaller than current
                 data = np.ma.zeros(im0_size, dtype=ev_ct_mean.dtype)
                 data[:] = np.nan
-                data[:ev_ct_mean.shape[0], :ev_ct_mean.shape[1]] = ev_ct_mean
+                try:
+                    data[:ev_ct_mean.shape[0], :ev_ct_mean.shape[1]] = ev_ct_mean
+                except ValueError:
+                    raise ValueError("New array is larger than original image.") from None
                 images[0].set_data(data)            # Update the image
             else:
                 images[0].set_data(ev_ct_mean)      # Otherwise just update the image
@@ -666,12 +719,16 @@ class READ_OCI_SPA_SPE_L1A(object):
             if im1_size != ev_at_mean.shape:    # Pad the new image if smaller than current
                 data = np.ma.zeros(im1_size, dtype=ev_at_mean.dtype)
                 data[:] = np.nan
-                data[:ev_at_mean.shape[0], :ev_at_mean.shape[1]] = ev_at_mean
+                try:
+                    data[:ev_at_mean.shape[0], :ev_at_mean.shape[1]] = ev_at_mean
+                except ValueError:
+                    raise ValueError("New array is larger than original image.") from None
                 images[1].set_data(data)            # Update the image
             else:
                 images[1].set_data(ev_at_mean)      # Otherwise just update the image
 
         # Now that the axes have an (updated) image, update the supporting information.
+        print(images, vlim)
         images[0].set_clim(vlim[0])
         images[1].set_clim(vlim[1])
         ax[0].findobj(lambda x: x.get_gid() == 'max0')[0].set_text("{:.1f}".format(ev_ct_mean.max()))
@@ -705,6 +762,15 @@ class READ_OCI_SPA_SPE_L1A(object):
         By default, means and standard deviations are computed along the third axis, the cross track
         scan direction. Any pixels outside frac * std from the mean are masked.
         Setting axis=0 will compute mean and std in the along track/flight direction.
+
+        Typical use::
+
+            import oci_l1a.read_oci_1a_class as oci
+            path = "/path/to/my/data/"                  # Source folder
+            files = oci.get_pace_oci_l1a_files(path)
+            oci_ccd = oci.READ_OCI_SPA_SPE_L1A(file[0]))
+            Sci_swir_data = oci_ccd.mask_outliers(oci_ccd.Sci_swir_data)
+            Sci_red_data = oci_ccd.mask_outliers(oci_ccd.Sci_red_data)
         """
         mean = data.mean(axis=axis, keepdims=True)
         std = data.std(axis=axis, keepdims=True)
@@ -734,6 +800,17 @@ class READ_OCI_THERMAL_L1A(object):
 
         In addition, **path** is defined, the path to a single input file or a list of paths to
         each input file when **append()** is used. Note that temperatures are in deg C (I believe.)
+
+        Typical use::
+
+            import oci_l1a.read_oci_1a_class as oci
+            path = "/path/to/my/data/"                  # Source folder
+            files = oci.get_pace_oci_l1a_files(path)    # Get file paths
+            oci_therm = oci.READ_OCI_THERMAL_L1A(files[0])
+            print("aob_temperatures")
+            print(oci_therm.aob_temperatures)
+            print("red_fpa_temperatures")
+            print(oci_therm.red_fpa_temperatures)
     """
 
     def __init__(self, path=None):
@@ -831,11 +908,19 @@ class READ_OCI_THERMAL_L1A(object):
 
         Typical use::
 
-            oci_therm = READ_OCI_THERMAL_L1A()
+            import oci_l1a.read_oci_1a_class as oci
+            path = "/path/to/my/data/"                  # Source folder
+            files = oci.get_pace_oci_l1a_files(path)    # Get file paths
+
+            oci_therm = oci.READ_OCI_THERMAL_L1A()
             for file in files:
                 oci_therm.append(READ_OCI_THERMAL_L1A(file))
             oci_therm.append_conclude()
-        """
+            print("aob_temperatures")
+            print(oci_therm.aob_temperatures)
+            print("red_fpa_temperatures")
+            print(oci_therm.red_fpa_temperatures)
+       """
         if self.path is None:
             self.path = []
             self._aob_temperatures_lst, self._blue_fpa_temperatures_lst = [], []
@@ -875,80 +960,80 @@ class READ_OCI_THERMAL_L1A(object):
         del self._dau_tlm_time_lst,  self._red_fpa_temperatures_lst
         del self._sds_det_temperatures_lst, self._tc_tlm_time_lst
 
-    def plot(self, variable, ax=None, plt_type='3d'):
-        """Method doesn't work. Just return"""
-        # return
-
-        """Create a 3d plot of the specified thermal data.
-
-        :param variable: string name of the variable to plot
-        :param ax: If not None, 3d axis on which to place the plot. If None (default) make a new figure.
-        :param plt_type: Either '3d' for 'imag' to specify the type of display. (Default '3d') 
-        :return:
-
-        Valid string values for **variable** are:
-           - "aob_temperatures"
-           - "blue_fpa_temperatures"
-           - "dau_temperatures"
-           - "red_fpa_temperatures"
-           - "sds_det_temperatures"
-
-        If an axis is provided, it must have been created with projection='3d'
-        for a 3d plot and must be created without a projection for an image.
-        """
-        if plt_type not in ['3d', 'imag']:
-            raise ValueError("Plot type must be either '3d' or 'imag'. {:} is neither.".format(plt_type))
-
-        if variable == "aob_temperatures":
-            title = "AOB_temperatures"
-            time = self.dau_tlm_time
-            labels = therm.DAU_AOB_temps["name"]
-            temps = self.aob_temperatures.fill(np.nan)
-        elif variable == "blue_fpa_temperatures":
-            title = "blue_fpa_temperatures"
-            time = self.dau_tlm_time
-            labels = therm.DAU_FPA_temps["name"]
-            temps = self.blue_fpa_temperatures.fill(np.nan)
-        elif variable == "dau_temperatures":
-            title = "dau_temperatures"
-            time = self.dau_tlm_time
-            labels = therm.DAU_temps["name"]
-            temps = self.dau_temperatures.fill(np.nan)
-        elif variable == "red_fpa_temperatures":
-            title = "red_fpa_temperatures"
-            time = self.dau_tlm_time
-            labels = therm.DAU_FPA_temps["name"]
-            temps = self.red_fpa_temperatures.fill(np.nan)
-        elif variable == "sds_det_temperatures":
-            title = "sds_det_temperatures"
-            time = self.dau_tlm_time
-            labels = therm.DAU_SDS_det_temps["name"]
-            temps = self.sds_det_temperatures.fill(np.nan)
-        else:
-            raise ValueError("Variable given {:} not recognized.".format(variable))
-
-        t_min, t_max = np.nanmin(temps), np.nanmax(temps)
-        # If needed, create the figure and axis in the proper form.
-        subplot_kw = {"projection": '3d'} if plt_type == '3d' else {}
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, subplot_kw=subplot_kw)
-        else:
-            fig = ax.figure
-        ax.set_title(title)
-        x_ticks = range(len(labels))        # Tick and label each channel
-        ax.set_xticks(x_ticks)
-        ax.set_xticklabels(labels)
-        fig.autofmt_xdate(rotation=90)
-        if plt_type == 'imag':              # Make the plot
-            surf = ax.imshow(temps)
-            ax.set_aspect("auto")
-        else:
-            l, t = np.meshgrid(range(len(time)), x_ticks)
-            surf = ax.plot_surface(t, l, temps.T,
-                                   vmin=t_min, vmax=t_max,
-                                   cmap=mpl.rcParams['image.cmap'])
-            ax.set_aspect("auto")
-        fig.colorbar(surf, ax=ax)
+    # def plot(self, variable, ax=None, plt_type='3d'):
+    #     """Method doesn't work. Just return"""
+    #     # return
+    #
+    #     """Create a 3d plot of the specified thermal data.
+    #
+    #     :param variable: string name of the variable to plot
+    #     :param ax: If not None, 3d axis on which to place the plot. If None (default) make a new figure.
+    #     :param plt_type: Either '3d' for 'imag' to specify the type of display. (Default '3d')
+    #     :return:
+    #
+    #     Valid string values for **variable** are:
+    #        - "aob_temperatures"
+    #        - "blue_fpa_temperatures"
+    #        - "dau_temperatures"
+    #        - "red_fpa_temperatures"
+    #        - "sds_det_temperatures"
+    #
+    #     If an axis is provided, it must have been created with projection='3d'
+    #     for a 3d plot and must be created without a projection for an image.
+    #     """
+    #     if plt_type not in ['3d', 'imag']:
+    #         raise ValueError("Plot type must be either '3d' or 'imag'. {:} is neither.".format(plt_type))
+    #
+    #     if variable == "aob_temperatures":
+    #         title = "AOB_temperatures"
+    #         time = self.dau_tlm_time
+    #         labels = therm.DAU_AOB_temps["name"]
+    #         temps = self.aob_temperatures.fill(np.nan)
+    #     elif variable == "blue_fpa_temperatures":
+    #         title = "blue_fpa_temperatures"
+    #         time = self.dau_tlm_time
+    #         labels = therm.DAU_FPA_temps["name"]
+    #         temps = self.blue_fpa_temperatures.fill(np.nan)
+    #     elif variable == "dau_temperatures":
+    #         title = "dau_temperatures"
+    #         time = self.dau_tlm_time
+    #         labels = therm.DAU_temps["name"]
+    #         temps = self.dau_temperatures.fill(np.nan)
+    #     elif variable == "red_fpa_temperatures":
+    #         title = "red_fpa_temperatures"
+    #         time = self.dau_tlm_time
+    #         labels = therm.DAU_FPA_temps["name"]
+    #         temps = self.red_fpa_temperatures.fill(np.nan)
+    #     elif variable == "sds_det_temperatures":
+    #         title = "sds_det_temperatures"
+    #         time = self.dau_tlm_time
+    #         labels = therm.DAU_SDS_det_temps["name"]
+    #         temps = self.sds_det_temperatures.fill(np.nan)
+    #     else:
+    #         raise ValueError("Variable given {:} not recognized.".format(variable))
+    #
+    #     t_min, t_max = np.nanmin(temps), np.nanmax(temps)
+    #     # If needed, create the figure and axis in the proper form.
+    #     subplot_kw = {"projection": '3d'} if plt_type == '3d' else {}
+    #     if ax is None:
+    #         fig, ax = plt.subplots(1, 1, subplot_kw=subplot_kw)
+    #     else:
+    #         fig = ax.figure
+    #     ax.set_title(title)
+    #     x_ticks = range(len(labels))        # Tick and label each channel
+    #     ax.set_xticks(x_ticks)
+    #     ax.set_xticklabels(labels)
+    #     fig.autofmt_xdate(rotation=90)
+    #     if plt_type == 'imag':              # Make the plot
+    #         surf = ax.imshow(temps)
+    #         ax.set_aspect("auto")
+    #     else:
+    #         l, t = np.meshgrid(range(len(time)), x_ticks)
+    #         surf = ax.plot_surface(t, l, temps.T,
+    #                                vmin=t_min, vmax=t_max,
+    #                                cmap=mpl.rcParams['image.cmap'])
+    #         ax.set_aspect("auto")
+    #     fig.colorbar(surf, ax=ax)
 
 
 def main(args):

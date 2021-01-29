@@ -9,20 +9,20 @@ The temperature conversions are taken from
 **OCI-SYS-TN-0270_OCI Temperature Sensor List for K3 Temperature Calibration Revision G**,
 source file, **pace_oci_thermistor_table.txt** from Gene Eplee (21 October 2020,
 and code samples **read_pace_oci_icdu_temps.pro** and **read_pace_full_oci_temps.pro**
-by Gene Eplee. Note that these files don't currently include the **Vmeas,gnd** correction shown
+by Gene Eplee. Note that these files don't currently include the **Vmeas, gnd** correction shown
 for some channels in the Excel file **OCI-SYS-TN-0270_OCI**.
 
 Note that the **engineering_data** group contains three time variables: **DAU_tlm_time**,
 **DDC_tlm_time**, and **TC_tlm_time**. It is not clear to me which ones go with which data sets.
 
-   - uint16 blue_FPA_temperatures(tlm_packets, DAU_FPA_temps)
+   - uint16 **blue_FPA_temperatures(tlm_packets, DAU_FPA_temps)**
      'DAU_FPA_temps': <class 'netCDF4._netCDF4.Dimension'>: name = 'DAU_FPA_temps', size = 14,
-   - uint16 red_FPA_temperatures(tlm_packets, DAU_FPA_temps)     "
-   - uint16 SDS_det_temperatures(tlm_packets, DAU_SDS_det_temps)
+   - uint16 **red_FPA_temperatures(tlm_packets, DAU_FPA_temps)**
+   - uint16 **SDS_det_temperatures(tlm_packets, DAU_SDS_det_temps)**
      'DAU_SDS_det_temps': <class 'netCDF4._netCDF4.Dimension'>: name = 'DAU_SDS_det_temps', size = 16,
-   - uint16 AOB_temperatures(tlm_packets, DAU_AOB_temps)
+   - uint16 **AOB_temperatures(tlm_packets, DAU_AOB_temps)**
      'DAU_AOB_temps': <class 'netCDF4._netCDF4.Dimension'>: name = 'DAU_AOB_temps', size = 9,
-   - uint16 DAU_temperatures(tlm_packets, DAU_temps)
+   - uint16 **DAU_temperatures(tlm_packets, DAU_temps)**
      'DAU_temps': <class 'netCDF4._netCDF4.Dimension'>: name = 'DAU_temps', size = 14,
 
 Some references
@@ -57,8 +57,8 @@ DAU_FPA_temps = {"name" : [0,
 
 Used by the variables **blue_FPA_temperatures** and **red_FPA_temperatures**. 
 This is a dictionary with 
-key "name" a list of sensor names and 
-key "convert" a list of list of polynomial coefficients from highest to lowest power
+key **"name"** a list of sensor names and 
+key **"convert"** a list of lists of polynomial coefficients from highest to lowest power
 to convert volts to deg C (after conversion from raw counts to volts.."""
 
 DAU_SDS_det_temps = {"name" : ["SDS Det. Temp. 1",
@@ -91,8 +91,8 @@ DAU_SDS_det_temps = {"name" : ["SDS Det. Temp. 1",
 
 Used by the variable **SDS_det_temperatures**. 
 This is a dictionary with 
-key "name" a list of sensor names and 
-key "convert" a list of list of polynomial coefficients from highest to lowest power
+key **"name"** a list of sensor names and 
+key **"convert"** a list of list of polynomial coefficients from highest to lowest power
 to convert volts to deg C (after conversion from raw counts to volts.."""
 
 DAU_AOB_temps = {"name" : ["AOB Temp. 1",
@@ -113,8 +113,8 @@ DAU_AOB_temps = {"name" : ["AOB Temp. 1",
 
 Used by the variable **AOB_temperatures**. 
 This is a dictionary with 
-key "name" a list of sensor names and 
-key "convert" a list of list of polynomial coefficients from highest to lowest power
+key **"name"** a list of sensor names and 
+key **"convert"** a list of list of polynomial coefficients from highest to lowest power
 to convert volts to deg C (after conversion from raw counts to volts.."""
 
 
@@ -143,8 +143,8 @@ DAU_temps = {"name" : ["DDC Temp 1",
 
 Used by the variable **DAU_temperatures**. 
 This is a dictionary with 
-key "name" a list of sensor names and 
-key "convert" a list of list of polynomial coefficients from highest to lowest power
+key **"name"** a list of sensor names and 
+key **"convert"** a list of list of polynomial coefficients from highest to lowest power
 to convert volts to deg C (after conversion from raw counts to volts.."""
 
 thermal_dims = {"DAU_FPA_temps" : DAU_FPA_temps,

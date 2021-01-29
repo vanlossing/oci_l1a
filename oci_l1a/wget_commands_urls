@@ -1,0 +1,8 @@
+https://oceandata.sci.gsfc.nasa.gov/cgi/getfile/PACE_OCI_2021023093.20210123T144741.L1A.nc
+https://oceandata.sci.gsfc.nasa.gov/cgi/getfile/PACE_OCI_2021023093.20210123T144800.L1A.nc
+https://oceandata.sci.gsfc.nasa.gov/cgi/getfile/PACE_OCI_2021023094.20210123T144819.L1A.nc
+
+
+
+
+# wget -q --load-cookies ~/oci_odps.urs_cookies --save-cookies ~/oci_odps.urs_cookies --auth-no-challenge=on --keep-session-cookies --content-disposition -o ./wget.log -P ./  -i 20210123__.txt
